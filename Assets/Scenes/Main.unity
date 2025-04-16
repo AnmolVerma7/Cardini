@@ -4642,14 +4642,14 @@ MonoBehaviour:
     m_Bits: 8
   wallRunForce: 200
   wallJumpUpForce: 7
-  wallJumpSideForce: 10
+  wallJumpSideForce: 3
   wallClimbSpeed: 2
   maxWallRunTime: 2
   jumpKey: 32
   upwardsRunKey: 304
   downwardsRunKey: 306
   wallCheckDistance: 0.7
-  minJumpHeight: 2
+  minJumpHeight: 1
   exitWallTime: 0.2
   useGravity: 1
   gravityCounterForce: 20

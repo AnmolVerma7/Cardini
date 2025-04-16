@@ -37,7 +37,7 @@ MonoBehaviour:
   momentumRetentionPercentage: 0.4
   teleportationSnapFactor: 1.2
   enableLedgeClimbing: 1
-  floatWhenLookingUp: 1
+  floatWhenLookingUp: 0
   verticalAngleThreshold: -22.5
   showTrajectory: 1
   arcResolution: 30
