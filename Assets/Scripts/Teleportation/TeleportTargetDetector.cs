@@ -85,8 +85,8 @@ public class TeleportTargetDetector : MonoBehaviour
         Vector3 cameraPosition = _cameraTransform.position;
         Vector3 cameraForward = _cameraTransform.forward;
         
+        // Get camera angle but don't use it for threshold decisions
         float verticalAngle = GetCameraVerticalAngle();
-        bool isPastThreshold = verticalAngle < _settings.verticalAngleThreshold;
         
         // Primary detection: direct camera ray
         if (TryCameraRayDetection(cameraPosition, cameraForward, playerPosition))
@@ -94,9 +94,9 @@ public class TeleportTargetDetector : MonoBehaviour
             return true;
         }
         
-        // Secondary detection: looking up/down
-        if ((isPastThreshold || _settings.floatWhenLookingUp) && 
-            TryVerticalDetection(playerPosition, cameraForward, isPastThreshold))
+        // Secondary detection: always try vertical detection regardless of angle
+        if (_settings.floatWhenLookingUp && 
+            TryVerticalDetection(playerPosition, cameraForward, false))
         {
             return true;
         }
@@ -310,25 +310,27 @@ public class TeleportTargetDetector : MonoBehaviour
     }
     
     private Vector3 CalculateLedgeTeleportPosition(Vector3 ledgePosition, Vector3 wallNormal, 
-                                                 float heightDiff, float surfaceAngle)
+                                             float heightDiff, float surfaceAngle)
     {
-        // Height offset calculation
-        float cameraAngle = GetCameraVerticalAngle();
-        float heightFactor = Mathf.Clamp01(heightDiff / 2f);
-        float dynamicOffset = Mathf.Lerp(0.5f, _settings.ledgeHeightOffset, heightFactor);
+        // Height offset calculation - no camera angle dependency
+        float heightFactor = Mathf.Clamp01(Mathf.Abs(heightDiff) / 2f);
         
-        // Extra clearance when looking up
-        if (cameraAngle < -15f)
-        {
-            dynamicOffset += Mathf.Abs(cameraAngle) * 0.01f;
-        }
+        // For same-height platforms, use consistent offset
+        float dynamicOffset = Mathf.Abs(heightDiff) < 0.5f ? 
+                            Mathf.Lerp(0.6f, 0.8f, heightFactor) : 
+                            Mathf.Lerp(0.5f, _settings.ledgeHeightOffset, heightFactor);
         
         // Calculate base position
         Vector3 teleportPosition = ledgePosition + Vector3.up * dynamicOffset;
         
-        // Apply wall offset
-        float baseOffset = Mathf.Lerp(0.2f, 0.4f, (surfaceAngle - SURFACE_LEDGE_MIN_ANGLE) / 30f);
-        float heightAdjustedOffset = baseOffset * (1f + heightFactor * 0.5f);
+        // Apply wall offset based on surface angle
+        float baseOffset = Mathf.Lerp(0.25f, 0.4f, (surfaceAngle - SURFACE_LEDGE_MIN_ANGLE) / 30f);
+        
+        // Use consistent offset for same-height platforms
+        float heightAdjustedOffset = Mathf.Abs(heightDiff) < 0.5f ?
+                                baseOffset * 1.2f : // More offset for same-height platforms
+                                baseOffset * (1f + heightFactor * 0.5f);
+        
         teleportPosition -= wallNormal * heightAdjustedOffset;
         
         // Ensure minimum ground clearance
@@ -347,20 +349,23 @@ public class TeleportTargetDetector : MonoBehaviour
         public float distanceScore;
         public float normalScore;
         public float heightScore;
+        public float edgeScore; // New property to prioritize true edges
         
         public float CalculateTotalScore()
         {
-            const float thicknessWeight = 0.4f;
-            const float distanceWeight = 0.2f;
-            const float normalWeight = 0.2f;
-            const float heightWeight = 0.2f;
+            const float thicknessWeight = 0.35f;
+            const float distanceWeight = 0.25f;
+            const float normalWeight = 0.15f;
+            const float heightWeight = 0.15f;
+            const float edgeWeight = 0.1f; // Weight for edge proximity
             
             float thicknessScore = Mathf.Clamp01((thickness - 0.3f) / 1.7f);
             
             return (thicknessScore * thicknessWeight) + 
-                   (distanceScore * distanceWeight) + 
-                   (normalScore * normalWeight) + 
-                   (heightScore * heightWeight);
+                (distanceScore * distanceWeight) + 
+                (normalScore * normalWeight) + 
+                (heightScore * heightWeight) +
+                (edgeScore * edgeWeight); // Add edge score to total
         }
     }
     
@@ -378,27 +383,30 @@ public class TeleportTargetDetector : MonoBehaviour
             return hit.point;
         }
         
-        // Calculate search parameters
+        // Calculate search parameters - no angle-based adjustment
         float heightDiff = hit.point.y - _playerTransform.position.y;
-        float cameraVerticalAngle = GetCameraVerticalAngle();
-        float verticalAngleAbsolute = Mathf.Abs(cameraVerticalAngle);
         
-        // Configure search height
-        float angleAdjustment = CalculateAngleAdjustment(cameraVerticalAngle);
-        float heightAdjustment = Mathf.Clamp01(heightDiff / 4f) * 0.5f;
-        float searchHeight = 1.8f + angleAdjustment + heightAdjustment;
+        // Fix for equal-height platforms - use consistent search height
+        float baseSearchHeight = 1.8f;
+        float heightAdjustment = Mathf.Abs(heightDiff) < 0.5f ? 0.3f : 
+                                Mathf.Clamp01(heightDiff / 4f) * 0.5f;
+        float searchHeight = baseSearchHeight + heightAdjustment;
         
-        // Configure search origin
+        // Configure search origin with fixed position
         Vector3 aboveHitPoint = hit.point + Vector3.up * searchHeight;
-        if (cameraVerticalAngle < -30f)
-        {
-            float pullbackAmount = Mathf.Min(verticalAngleAbsolute * 0.01f, 0.3f);
-            aboveHitPoint += wallNormal * pullbackAmount;
-        }
         
-        // Search for ledge candidates
-        List<LedgeCandidate> candidates = ScanForLedgeCandidates(hit, wallNormal, aboveHitPoint, 
-                                                               searchHeight, cameraVerticalAngle);
+        // Use more search distances for platforms near player height
+        List<LedgeCandidate> candidates = new List<LedgeCandidate>();
+        float[] searchDistances = Mathf.Abs(heightDiff) < 0.5f ?
+            new float[] { 0.05f, 0.1f, 0.15f, 0.2f, 0.25f, 0.3f, 0.4f, 0.5f, 0.6f, 0.8f, 1.0f } :
+            new float[] { 0.05f, 0.1f, 0.2f, 0.3f, 0.4f, 0.6f, 0.8f, 1.0f, 1.5f };
+        
+        foreach (float distance in searchDistances)
+        {
+            // Use consistent scaling regardless of camera angle
+            float scaledDistance = distance * (1f + Mathf.Clamp01(Mathf.Abs(heightDiff) / 3f) * 0.2f);
+            ScanForLedgeCandidatesAtDistance(hit, wallNormal, aboveHitPoint, scaledDistance, searchHeight, candidates);
+        }
         
         // Find best candidate
         LedgeCandidate bestCandidate = FindBestLedgeCandidate(candidates, hit.point);
@@ -406,17 +414,26 @@ public class TeleportTargetDetector : MonoBehaviour
         // Fallback if no candidates found
         if (bestCandidate.position == Vector3.zero)
         {
-            return hit.point + Vector3.up * Mathf.Max(1f, heightDiff * 0.5f);
+            return hit.point + Vector3.up * Mathf.Max(0.8f, heightDiff * 0.4f);
         }
         
         // Store surface normal
         _surfaceNormal = bestCandidate.normal;
         
-        // Calculate safety offset
-        float safetyOffset = Mathf.Lerp(0.3f, 0.15f, Mathf.Clamp01((bestCandidate.thickness - 0.3f) / 1.7f));
+        // Anti-phasing safety offset
+        float safetyOffset = Mathf.Lerp(0.35f, 0.2f, Mathf.Clamp01((bestCandidate.thickness - 0.3f) / 1.7f));
+        
+        // Extra offset for platform edges to prevent phasing
+        if (Mathf.Abs(heightDiff) < 0.8f && bestCandidate.thickness < 0.8f)
+        {
+            safetyOffset += 0.1f; // Add extra offset for platform edges at similar height
+        }
+        
+        // Apply vertical offset based on thickness (thinner edges need more vertical clearance)
+        float verticalOffset = bestCandidate.thickness < 0.5f ? 0.12f : 0.08f;
         
         // Return final position
-        return bestCandidate.position - wallNormal * safetyOffset + Vector3.up * 0.08f;
+        return bestCandidate.position - wallNormal * safetyOffset + Vector3.up * verticalOffset;
     }
     
     private List<LedgeCandidate> ScanForLedgeCandidates(RaycastHit hit, Vector3 wallNormal, 
@@ -444,11 +461,15 @@ public class TeleportTargetDetector : MonoBehaviour
     }
     
     private void ScanForLedgeCandidatesAtDistance(RaycastHit hit, Vector3 wallNormal, Vector3 aboveHitPoint,
-                                               float distance, float searchHeight, List<LedgeCandidate> candidates)
+                                           float distance, float searchHeight, List<LedgeCandidate> candidates)
     {
-        for (float horizontalOffset = -0.2f; horizontalOffset <= 0.2f; horizontalOffset += 0.2f)
+        // Use finer grid for more precise detection
+        float horizontalStep = 0.15f;
+        float verticalStep = 0.1f;
+        
+        for (float horizontalOffset = -0.3f; horizontalOffset <= 0.3f; horizontalOffset += horizontalStep)
         {
-            for (float verticalOffset = -0.2f; verticalOffset <= 0.2f; verticalOffset += 0.1f)
+            for (float verticalOffset = -0.3f; verticalOffset <= 0.3f; verticalOffset += verticalStep)
             {
                 // Calculate check point
                 Vector3 checkPoint = aboveHitPoint - wallNormal * distance;
@@ -461,7 +482,7 @@ public class TeleportTargetDetector : MonoBehaviour
                 {
                     // Check if flat enough
                     float upDot = Vector3.Dot(topHit.normal, Vector3.up);
-                    if (upDot > 0.866f) // cos 30°
+                    if (upDot > 0.85f) // Slightly more forgiving angle check
                     {
                         // Calculate ledge thickness
                         float thickness = CalculateLedgeThickness(topHit.point, wallNormal);
@@ -469,14 +490,26 @@ public class TeleportTargetDetector : MonoBehaviour
                         // Add candidate if thick enough
                         if (thickness >= MIN_LEDGE_THICKNESS)
                         {
+                            // Calculate edge score - prefer thinner ledges for equal-height platforms
+                            float edgeScore = 0f;
+                            if (thickness < 1.0f)
+                            {
+                                edgeScore = 1f - Mathf.Clamp01(thickness / 1.0f);
+                            }
+                            
+                            // Boost score for ledges at player height level
+                            float heightDiffToPlayer = Mathf.Abs(topHit.point.y - _playerTransform.position.y);
+                            float sameHeightBonus = heightDiffToPlayer < 0.5f ? 0.3f : 0f;
+                            
                             candidates.Add(new LedgeCandidate
                             {
                                 position = topHit.point,
                                 normal = topHit.normal,
                                 thickness = thickness,
-                                distanceScore = 1f - (distance / 2.5f),
+                                distanceScore = 1f - (distance / 2.5f) + edgeScore * 0.3f + sameHeightBonus,
                                 normalScore = upDot,
-                                heightScore = topHit.point.y >= hit.point.y ? 1f : 0f
+                                heightScore = topHit.point.y >= hit.point.y ? 1f : 0f,
+                                edgeScore = edgeScore
                             });
                         }
                     }
@@ -548,20 +581,72 @@ public class TeleportTargetDetector : MonoBehaviour
         if (wallNormal == Vector3.zero)
             return false;
         
-        // Check vertical clearance
-        if (!HasVerticalClearance(position))
-            return false;
+        // Special handling for platform edges at player height level
+        float heightDiffToPlayer = Mathf.Abs(position.y - _playerTransform.position.y);
+        bool isSameHeightPlatform = heightDiffToPlayer < 0.5f;
         
-        // Check horizontal clearance
-        if (!HasHorizontalClearance(position, wallNormal))
-            return false;
+        // For platform edges, require more clearance
+        if (isSameHeightPlatform)
+        {
+            if (!HasPlatformEdgeClearance(position, wallNormal))
+                return false;
+        }
+        else
+        {
+            // Standard checks for ledges at different heights
+            if (!HasVerticalClearance(position))
+                return false;
+                
+            if (!HasHorizontalClearance(position, wallNormal))
+                return false;
+        }
+        
+        // Adjust thickness requirement for same-height platforms
+        float minThickness = isSameHeightPlatform ? 0.25f : MIN_LEDGE_THICKNESS;
         
         // Check thickness
-        if (thickness < MIN_LEDGE_THICKNESS)
+        if (thickness < minThickness)
             return false;
         
         // Check stable ground
         return HasStableGround(position);
+    }
+
+    private bool HasPlatformEdgeClearance(Vector3 position, Vector3 wallNormal)
+    {
+        // Specialized clearance check for platform edges
+        
+        // Check vertical clearance first
+        if (Physics.SphereCast(
+            position + Vector3.up * PLAYER_HEIGHT,
+            PLAYER_RADIUS * 0.7f, // Slightly reduced radius for platform edges
+            Vector3.down,
+            out RaycastHit clearanceHit,
+            PLAYER_HEIGHT - 0.1f,
+            _settings.teleportationBlockers))
+        {
+            return false;
+        }
+        
+        // For platform edges, check specifically in front direction
+        if (Physics.Raycast(
+            position + Vector3.up * 0.5f,
+            -wallNormal, // Direction toward the platform
+            PLAYER_RADIUS * 0.8f,
+            _settings.teleportationBlockers))
+        {
+            return false;
+        }
+        
+        // And check perpendicular directions
+        Vector3 sideDir = Vector3.Cross(wallNormal, Vector3.up).normalized;
+        if (Physics.Raycast(position + Vector3.up * 0.5f, sideDir, PLAYER_RADIUS, _settings.teleportationBlockers) ||
+            Physics.Raycast(position + Vector3.up * 0.5f, -sideDir, PLAYER_RADIUS, _settings.teleportationBlockers))
+        {
+            return false;
+        }
+        
+        return true;
     }
     #endregion
     
@@ -603,6 +688,25 @@ public class TeleportTargetDetector : MonoBehaviour
     
     private bool SetDestinationPosition(Vector3 teleportPosition)
     {
+        // First make sure we're not misteleporting to a location the player isn't looking at
+        // Calculate angle between camera forward and direction to teleport
+        Vector3 directionToTarget = teleportPosition - _cameraTransform.position;
+        float angleToCameraForward = Vector3.Angle(_cameraTransform.forward, directionToTarget);
+        
+        // If angle is too large, this might be a misteleport
+        if (angleToCameraForward > 45f)
+        {
+            // Check if there's a more direct target in between
+            if (Physics.Raycast(_cameraTransform.position, _cameraTransform.forward, 
+                            out RaycastHit directHit, 
+                            Vector3.Distance(_cameraTransform.position, teleportPosition) * 0.8f, 
+                            _settings.teleportableSurfaces))
+            {
+                LogDebugMessage("Teleport rejected: Target not directly in view");
+                return false;
+            }
+        }
+        
         // Check if path passes through solid objects
         if (IsTeleportPathBlocked(_playerTransform.position, teleportPosition))
         {
@@ -630,7 +734,7 @@ public class TeleportTargetDetector : MonoBehaviour
         }
         
         // Final obstruction check
-        Vector3 directionToTarget = teleportPosition - _playerTransform.position;
+        Vector3 directionToTarget2 = teleportPosition - _playerTransform.position;
         bool isBlocked = Physics.SphereCast(
             _playerTransform.position + Vector3.up * 1f,
             0.5f,

@@ -1374,7 +1374,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 817131431319534884, guid: e9be83116c24ea042bffbb0685d9a540, type: 3}
       propertyPath: m_LocalPosition.y
-      value: 3
+      value: 4.5
       objectReference: {fileID: 0}
     - target: {fileID: 817131431319534884, guid: e9be83116c24ea042bffbb0685d9a540, type: 3}
       propertyPath: m_LocalPosition.z
@@ -4694,7 +4694,7 @@ MonoBehaviour:
   jumpForce: 5
   jumpCooldown: 0.25
   airMultiplier: 0
-  coyoteTime: 0.2
+  coyoteTime: 0.5
   jumpBufferTime: 0.5
   enableAirControl: 1
   airControlFactor: 0.5
