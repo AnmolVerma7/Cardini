@@ -7,6 +7,11 @@ using UnityEngine.Audio;
 [CreateAssetMenu(fileName = "TeleportationSettings", menuName = "Gameplay/Teleportation Settings")]
 public class TeleportationSettings : ScriptableObject
 {
+    #region Nested Classes
+
+    /// <summary>
+    /// Audio-specific settings for teleportation
+    /// </summary>
     [System.Serializable]
     public class AudioSettings
     {
@@ -31,18 +36,21 @@ public class TeleportationSettings : ScriptableObject
         public AudioMixerGroup audioMixerGroup;
     }
     
+    /// <summary>
+    /// Visual-specific settings for teleportation
+    /// </summary>
     [System.Serializable]
     public class VisualSettings
     {
         [Header("Marker")]
         [Tooltip("Color for valid teleport markers")]
-        public Color validColor = new Color(0.2f, 0.6f, 1f, 0.8f);
+        public Color validColor = new Color(0.2f, 0.6f, 1f, 0.8f); // Blue
         
         [Tooltip("Color for ledge teleport markers")]
-        public Color ledgeColor = new Color(1f, 0.6f, 0.2f, 0.8f);
+        public Color ledgeColor = new Color(1f, 0.6f, 0.2f, 0.8f); // Orange
         
         [Tooltip("Color for invalid teleport markers")]
-        public Color invalidColor = new Color(1f, 0.2f, 0.2f, 0.8f);
+        public Color invalidColor = new Color(1f, 0.2f, 0.2f, 0.8f); // Red
         
         [Header("Effects")]
         [Tooltip("Particle system for teleport start")]
@@ -56,13 +64,15 @@ public class TeleportationSettings : ScriptableObject
         
         [Range(0.05f, 0.5f)]
         [Tooltip("Width of trajectory line")]
-        public float trajectoryWidth = 0.1f;
+        public float trajectoryWidth = 0.1f; // From screenshot value
 
-        // In TeleportationSettings.cs - VisualSettings class
         [Tooltip("Whether to show a trajectory arc")]
         public bool showTrajectory = true;
     }
     
+    /// <summary>
+    /// Camera-specific settings for teleportation effects
+    /// </summary>
     [System.Serializable]
     public class CameraSettings
     {
@@ -78,19 +88,27 @@ public class TeleportationSettings : ScriptableObject
         public float fovAnimationDuration = 0.3f;
         
         [Tooltip("Add motion blur during teleport")]
-        public bool useMotionBlur = false;
+        public bool useMotionBlur = true;
         
         [Range(0f, 1f)]
         [Tooltip("Motion blur strength")]
-        public float motionBlurStrength = 0.5f;
+        public float motionBlurStrength = 1f;
     }
+
+    #endregion
+
+    #region Core Settings
 
     [Header("Core Settings")]
     [Tooltip("Layers that can be teleported onto")]
-    public LayerMask teleportableSurfaces;
+    public LayerMask teleportableSurfaces; // Set to "whatIsGround" in Inspector
 
     [Tooltip("Layers that block teleportation path")]
-    public LayerMask teleportationBlockers;
+    public LayerMask teleportationBlockers; // Set to "whatIsWall" in Inspector
+
+    #endregion
+
+    #region Teleportation Controls
 
     [Header("Teleportation Controls")]
     [Tooltip("Maximum distance the player can teleport")]
@@ -105,14 +123,22 @@ public class TeleportationSettings : ScriptableObject
     [Range(45f, 180f)]
     public float maxLookAngle = 90f;
 
+    #endregion
+
+    #region Time Manipulation
+
     [Header("Time Manipulation")]
     [Tooltip("Time scale factor when aiming teleport (lower values = more slow-motion effect)")]
     [Range(0f, 1f)]
-    public float timeSlowdownFactor = 0.3f;
+    public float timeSlowdownFactor = 1f; // Note: 1.0 means no slowdown effect
 
     [Tooltip("Speed at which time returns to normal after teleporting (higher values = faster recovery)")]
     [Range(1f, 15f)]
-    public float timeRecoveryRate = 3f;
+    public float timeRecoveryRate = 15f;
+
+    #endregion
+
+    #region Teleportation Charges
 
     [Header("Teleportation Charges")]
     [Tooltip("Maximum number of teleport charges the player can have")]
@@ -126,6 +152,10 @@ public class TeleportationSettings : ScriptableObject
     [Tooltip("Whether charges regenerate during teleportation")]
     public bool regenerateDuringTeleport = true;
 
+    #endregion
+
+    #region Marker and Trajectory Settings
+
     [Header("Marker Settings")]
     [Tooltip("Additional position offset applied to the marker (useful for XZ adjustments)")]
     public Vector3 markerPositionOffset = Vector3.zero;
@@ -134,6 +164,18 @@ public class TeleportationSettings : ScriptableObject
     [Range(30f, 100f)]
     public float markerMovementSpeed = 89.5f;
     
+    [Header("Arc Settings")]
+    [Tooltip("Whether to show a trajectory arc")]
+    public bool showTrajectory = true;
+
+    [Tooltip("Maximum number of points to calculate in the arc")]
+    [Range(10, 60)]
+    public int arcResolution = 30;
+
+    #endregion
+
+    #region Surface Detection and Targeting
+
     [Header("Surface Detection")]
     [Tooltip("Height offset when teleporting to a regular (horizontal) surface")]
     [Range(0.05f, 2f)]
@@ -154,6 +196,10 @@ public class TeleportationSettings : ScriptableObject
     [Range(0.1f, 1f)]
     public float visibilityCheckRadius = 0.3f;
 
+    #endregion
+
+    #region Advanced Mechanics
+
     [Header("Advanced Mechanics")]
     [Tooltip("Whether to preserve player momentum when teleporting")]
     public bool preserveMomentumOnTeleport = true;
@@ -170,26 +216,22 @@ public class TeleportationSettings : ScriptableObject
     public bool enableLedgeClimbing = true;
 
     [Tooltip("Whether to allow floating when looking up")]
-    public bool floatWhenLookingUp = true;
+    public bool floatWhenLookingUp = false;
 
     [Range(-50f, 90f)] 
     [Tooltip("Vertical angle threshold for floating up detection")]
     public float verticalAngleThreshold = -22.5f;
 
-    [Header("Arc Settings")]
-    [Tooltip("Whether to show a trajectory arc")]
-    public bool showTrajectory = true;
+    #endregion
 
-    [Tooltip("Maximum number of points to calculate in the arc")]
-    [Range(10, 60)]
-    public int arcResolution = 30;
+    #region Debug and Extended Settings
 
     [Header("Debug Settings")]
     [Tooltip("Enable detailed debug visualization")]
     public bool showDebugVisualization = true;
 
     [Tooltip("Enable detailed debug logging")]
-    public bool enableDebugLogging = false;
+    public bool enableDebugLogging = true;
 
     [Header("Extended Settings")]
     [Tooltip("Audio settings for teleportation")]
@@ -200,7 +242,11 @@ public class TeleportationSettings : ScriptableObject
     
     [Tooltip("Camera settings for teleportation")]
     public CameraSettings cameraSettings;
-    
+
+    #endregion
+
+    #region Animation Events
+
     [Header("Events")]
     [Tooltip("Whether to trigger animation events on the player")]
     public bool triggerAnimationEvents = true;
@@ -210,4 +256,6 @@ public class TeleportationSettings : ScriptableObject
     
     [Tooltip("Animation trigger string for teleport end")]
     public string teleportEndTrigger = "TeleportEnd";
+
+    #endregion
 }

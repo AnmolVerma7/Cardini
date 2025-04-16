@@ -28,6 +28,8 @@ MonoBehaviour:
   regenerateDuringTeleport: 1
   markerPositionOffset: {x: 0, y: 0, z: 0}
   markerMovementSpeed: 89.5
+  showTrajectory: 1
+  arcResolution: 30
   groundedHeightOffset: 1
   ledgeHeightOffset: 1
   allowBottomSurfaceTargeting: 0
@@ -37,10 +39,8 @@ MonoBehaviour:
   momentumRetentionPercentage: 0.4
   teleportationSnapFactor: 1.2
   enableLedgeClimbing: 1
-  floatWhenLookingUp: 0
+  floatWhenLookingUp: 1
   verticalAngleThreshold: -22.5
-  showTrajectory: 1
-  arcResolution: 30
   showDebugVisualization: 1
   enableDebugLogging: 1
   audioSettings:

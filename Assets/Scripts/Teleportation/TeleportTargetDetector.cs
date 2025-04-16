@@ -7,7 +7,17 @@ using UnityEngine;
 /// </summary>
 public class TeleportTargetDetector : MonoBehaviour
 {
-    #region Fields
+    #region Constants
+    private const float PLAYER_EYE_HEIGHT = 1.6f;
+    private const float PLAYER_HEIGHT = 2f;
+    private const float PLAYER_RADIUS = 0.4f;
+    private const float MIN_LEDGE_THICKNESS = 0.3f;
+    private const float SURFACE_LEDGE_MIN_ANGLE = 75f;
+    private const float SURFACE_LEDGE_MAX_ANGLE = 105f;
+    private const float BOTTOM_SURFACE_ANGLE = 150f;
+    #endregion
+
+    #region Fields and Properties
     // Core references
     private TeleportationSettings _settings;
     private Transform _playerTransform;
@@ -17,30 +27,36 @@ public class TeleportTargetDetector : MonoBehaviour
     // Detection state
     private Vector3 _hitPosition;
     private Vector3 _targetPosition;
-    private Vector3 _surfaceNormal;
+    private Vector3 _surfaceNormal = Vector3.up;
     private Vector3 _ledgePosition;
     private bool _isTargetingLedge;
     private bool _hasValidTarget;
     
-    // Constants
-    private const float PLAYER_EYE_HEIGHT = 1.6f;
-    private const float PLAYER_HEIGHT = 2f;
-    private const float PLAYER_RADIUS = 0.4f;
-    private const float MIN_LEDGE_THICKNESS = 0.3f;
-    private const float SURFACE_LEDGE_MIN_ANGLE = 75f;
-    private const float SURFACE_LEDGE_MAX_ANGLE = 105f;
-    private const float BOTTOM_SURFACE_ANGLE = 150f;
-    
     // Debug visualization
     private RaycastHit[] _raycastHitCache = new RaycastHit[5];
+
+    // Public properties
+    public Vector3 TargetPosition => _targetPosition;
+    public bool IsTargetingLedge => _isTargetingLedge;
+    public Vector3 SurfaceNormal => _surfaceNormal;
     #endregion
     
     #region Events
+    /// <summary>
+    /// Triggered when a valid teleport target is found (position, isLedge, surfaceNormal)
+    /// </summary>
     public event Action<Vector3, bool, Vector3> OnTargetFound;
+    
+    /// <summary>
+    /// Triggered when no valid teleport target is found
+    /// </summary>
     public event Action OnNoTargetFound;
     #endregion
     
     #region Initialization
+    /// <summary>
+    /// Initialize the detector with required references
+    /// </summary>
     public void Initialize(TeleportationSettings settings, Transform playerTransform, 
                           Transform cameraTransform, Transform orientationTransform)
     {
@@ -53,10 +69,33 @@ public class TeleportTargetDetector : MonoBehaviour
         {
             Debug.LogError("TeleportTargetDetector: No settings provided!");
         }
+
+        ValidateRequiredComponents();
+    }
+
+    /// <summary>
+    /// Validate all required components and references
+    /// </summary>
+    private void ValidateRequiredComponents()
+    {
+        if (_playerTransform == null)
+        {
+            Debug.LogError("TeleportTargetDetector: No player transform provided!");
+        }
+
+        if (_cameraTransform == null)
+        {
+            Debug.LogError("TeleportTargetDetector: No camera transform provided!");
+        }
+
+        if (_orientationTransform == null)
+        {
+            Debug.LogError("TeleportTargetDetector: No orientation transform provided!");
+        }
     }
     #endregion
     
-    #region Target Detection
+    #region Public Methods
     /// <summary>
     /// Update the target detection (called during aiming state)
     /// </summary>
@@ -73,7 +112,9 @@ public class TeleportTargetDetector : MonoBehaviour
             OnNoTargetFound?.Invoke();
         }
     }
-    
+    #endregion
+
+    #region Target Detection - Main Methods
     /// <summary>
     /// Main method to detect valid teleportation destinations
     /// </summary>
@@ -85,16 +126,18 @@ public class TeleportTargetDetector : MonoBehaviour
         Vector3 cameraPosition = _cameraTransform.position;
         Vector3 cameraForward = _cameraTransform.forward;
         
-        // Get camera angle but don't use it for threshold decisions
+        // Get camera vertical angle
         float verticalAngle = GetCameraVerticalAngle();
         
-        // Primary detection: direct camera ray
+        // Try different detection methods in sequence
+        
+        // 1. Primary detection: direct camera ray
         if (TryCameraRayDetection(cameraPosition, cameraForward, playerPosition))
         {
             return true;
         }
         
-        // Secondary detection: always try vertical detection regardless of angle
+        // 2. Secondary detection: vertical detection when looking up
         if (_settings.floatWhenLookingUp && 
             TryVerticalDetection(playerPosition, cameraForward, false))
         {
@@ -104,6 +147,9 @@ public class TeleportTargetDetector : MonoBehaviour
         return false;
     }
     
+    /// <summary>
+    /// Try to detect a target by casting a ray from the camera
+    /// </summary>
     private bool TryCameraRayDetection(Vector3 cameraPosition, Vector3 cameraForward, Vector3 playerPosition)
     {
         // Cast ray from camera
@@ -115,7 +161,7 @@ public class TeleportTargetDetector : MonoBehaviour
             return false;
         }
         
-        // Check if hit a blocker
+        // Check if hit a blocker layer
         if (IsLayerInMask(cameraHit.collider.gameObject.layer, _settings.teleportationBlockers))
         {
             return false;
@@ -154,6 +200,9 @@ public class TeleportTargetDetector : MonoBehaviour
         }
     }
     
+    /// <summary>
+    /// Try to detect a target that's beyond max distance by clamping to max range
+    /// </summary>
     private bool TryClampedPositionDetection(Vector3 playerPosition, RaycastHit cameraHit, float distanceToTarget)
     {
         // Only process if target is too far (not too close)
@@ -187,6 +236,9 @@ public class TeleportTargetDetector : MonoBehaviour
         }
     }
     
+    /// <summary>
+    /// Try to detect a target by projecting forward and down (for floating/up-looking)
+    /// </summary>
     private bool TryVerticalDetection(Vector3 playerPosition, Vector3 cameraForward, bool isPastThreshold)
     {
         // Project camera forward to get horizontal direction
@@ -220,6 +272,9 @@ public class TeleportTargetDetector : MonoBehaviour
     #endregion
 
     #region Target Processing
+    /// <summary>
+    /// Process a ground (horizontal surface) targeting hit
+    /// </summary>
     private bool ProcessGroundTargeting(RaycastHit hit, float directDistance)
     {
         // Validation checks
@@ -252,6 +307,9 @@ public class TeleportTargetDetector : MonoBehaviour
         return SetDestinationPosition(teleportPosition);
     }
     
+    /// <summary>
+    /// Process a ledge (vertical/angled surface) targeting hit
+    /// </summary>
     private bool ProcessLedgeTargeting(RaycastHit hit, float directDistance)
     {
         // Bottom surface check
@@ -309,6 +367,9 @@ public class TeleportTargetDetector : MonoBehaviour
         return SetDestinationPosition(teleportPosition);
     }
     
+    /// <summary>
+    /// Calculate final teleport position for a ledge
+    /// </summary>
     private Vector3 CalculateLedgeTeleportPosition(Vector3 ledgePosition, Vector3 wallNormal, 
                                              float heightDiff, float surfaceAngle)
     {
@@ -341,6 +402,9 @@ public class TeleportTargetDetector : MonoBehaviour
     #endregion
     
     #region Ledge Detection
+    /// <summary>
+    /// Structure to store information about a potential ledge
+    /// </summary>
     private struct LedgeCandidate
     {
         public Vector3 position;
@@ -349,7 +413,7 @@ public class TeleportTargetDetector : MonoBehaviour
         public float distanceScore;
         public float normalScore;
         public float heightScore;
-        public float edgeScore; // New property to prioritize true edges
+        public float edgeScore; // Property to prioritize true edges
         
         public float CalculateTotalScore()
         {
@@ -365,10 +429,13 @@ public class TeleportTargetDetector : MonoBehaviour
                 (distanceScore * distanceWeight) + 
                 (normalScore * normalWeight) + 
                 (heightScore * heightWeight) +
-                (edgeScore * edgeWeight); // Add edge score to total
+                (edgeScore * edgeWeight);
         }
     }
     
+    /// <summary>
+    /// Find the top position of a ledge from an initial hit
+    /// </summary>
     private Vector3 FindLedgeTopPosition(RaycastHit hit)
     {
         Vector3 wallNormal = GetNormalizedWallNormal(hit.normal);
@@ -436,6 +503,9 @@ public class TeleportTargetDetector : MonoBehaviour
         return bestCandidate.position - wallNormal * safetyOffset + Vector3.up * verticalOffset;
     }
     
+    /// <summary>
+    /// Scan for ledge candidates with varying camera angles
+    /// </summary>
     private List<LedgeCandidate> ScanForLedgeCandidates(RaycastHit hit, Vector3 wallNormal, 
                                                       Vector3 aboveHitPoint, float searchHeight,
                                                       float cameraVerticalAngle)
@@ -460,6 +530,9 @@ public class TeleportTargetDetector : MonoBehaviour
         return candidates;
     }
     
+    /// <summary>
+    /// Scan for ledge candidates at a specific distance
+    /// </summary>
     private void ScanForLedgeCandidatesAtDistance(RaycastHit hit, Vector3 wallNormal, Vector3 aboveHitPoint,
                                            float distance, float searchHeight, List<LedgeCandidate> candidates)
     {
@@ -518,6 +591,9 @@ public class TeleportTargetDetector : MonoBehaviour
         }
     }
     
+    /// <summary>
+    /// Calculate the thickness of a ledge
+    /// </summary>
     private float CalculateLedgeThickness(Vector3 ledgePoint, Vector3 wallNormal)
     {
         float maxThicknessCheck = 2f;
@@ -553,6 +629,9 @@ public class TeleportTargetDetector : MonoBehaviour
         return maxThicknessCheck; // Very thick ledge
     }
     
+    /// <summary>
+    /// Find the best ledge candidate from a list
+    /// </summary>
     private LedgeCandidate FindBestLedgeCandidate(List<LedgeCandidate> candidates, Vector3 hitPoint)
     {
         if (candidates.Count == 0)
@@ -574,6 +653,9 @@ public class TeleportTargetDetector : MonoBehaviour
         return new LedgeCandidate();
     }
     
+    /// <summary>
+    /// Validate a ledge position for clearance and stability
+    /// </summary>
     private bool ValidateLedgePosition(Vector3 position, Vector3 hitPoint, float thickness)
     {
         // Get normalized wall normal
@@ -612,6 +694,9 @@ public class TeleportTargetDetector : MonoBehaviour
         return HasStableGround(position);
     }
 
+    /// <summary>
+    /// Check if a platform edge has enough clearance for the player
+    /// </summary>
     private bool HasPlatformEdgeClearance(Vector3 position, Vector3 wallNormal)
     {
         // Specialized clearance check for platform edges
@@ -650,7 +735,10 @@ public class TeleportTargetDetector : MonoBehaviour
     }
     #endregion
     
-    #region Helper Methods
+    #region Utility Methods
+    /// <summary>
+    /// Reset the detection state for a new frame
+    /// </summary>
     private void ResetDetectionState()
     {
         _hitPosition = Vector3.zero;
@@ -659,6 +747,9 @@ public class TeleportTargetDetector : MonoBehaviour
         _surfaceNormal = Vector3.up;
     }
     
+    /// <summary>
+    /// Get the vertical angle of the camera (positive = looking down, negative = looking up)
+    /// </summary>
     private float GetCameraVerticalAngle()
     {
         Vector3 flatForward = Vector3.ProjectOnPlane(_cameraTransform.forward, Vector3.up).normalized;
@@ -669,6 +760,9 @@ public class TeleportTargetDetector : MonoBehaviour
         );
     }
     
+    /// <summary>
+    /// Check if a position is behind the player's look direction
+    /// </summary>
     private bool IsPositionBehindPlayer(Vector3 position)
     {
         Vector3 directionToPosition = position - _playerTransform.position;
@@ -676,6 +770,9 @@ public class TeleportTargetDetector : MonoBehaviour
         return angleToTarget > _settings.maxLookAngle;
     }
     
+    /// <summary>
+    /// Check if a position is visible from the player
+    /// </summary>
     private bool IsVisibleFromPlayer(Vector3 targetPoint)
     {
         Vector3 playerEyePosition = _playerTransform.position + Vector3.up * PLAYER_EYE_HEIGHT;
@@ -686,6 +783,9 @@ public class TeleportTargetDetector : MonoBehaviour
             distanceToTarget, _settings.teleportationBlockers);
     }
     
+    /// <summary>
+    /// Set the final teleport destination position after validation
+    /// </summary>
     private bool SetDestinationPosition(Vector3 teleportPosition)
     {
         // First make sure we're not misteleporting to a location the player isn't looking at
@@ -734,7 +834,6 @@ public class TeleportTargetDetector : MonoBehaviour
         }
         
         // Final obstruction check
-        Vector3 directionToTarget2 = teleportPosition - _playerTransform.position;
         bool isBlocked = Physics.SphereCast(
             _playerTransform.position + Vector3.up * 1f,
             0.5f,
@@ -753,6 +852,9 @@ public class TeleportTargetDetector : MonoBehaviour
         return true;
     }
     
+    /// <summary>
+    /// Check if the teleport path is blocked by obstacles
+    /// </summary>
     private bool IsTeleportPathBlocked(Vector3 startPosition, Vector3 endPosition)
     {
         Vector3 direction = endPosition - startPosition;
@@ -771,6 +873,9 @@ public class TeleportTargetDetector : MonoBehaviour
         );
     }
     
+    /// <summary>
+    /// Ensure the teleport position has minimum ground clearance
+    /// </summary>
     private void EnsureMinimumGroundClearance(ref Vector3 position, float minClearance)
     {
         if (Physics.Raycast(position, Vector3.down, out RaycastHit surfaceHit, 0.5f, _settings.teleportableSurfaces))
@@ -783,21 +888,24 @@ public class TeleportTargetDetector : MonoBehaviour
         }
     }
     
+    /// <summary>
+    /// Check if a position has vertical clearance for the player
+    /// </summary>
     private bool HasVerticalClearance(Vector3 position)
     {
-        float playerHeight = PLAYER_HEIGHT;
-        float playerRadius = PLAYER_RADIUS;
-        
         return !Physics.SphereCast(
-            position + Vector3.up * playerHeight,
-            playerRadius * 0.8f,
+            position + Vector3.up * PLAYER_HEIGHT,
+            PLAYER_RADIUS * 0.8f,
             Vector3.down,
             out RaycastHit clearanceHit,
-            playerHeight - 0.1f,
+            PLAYER_HEIGHT - 0.1f,
             _settings.teleportationBlockers
         );
     }
     
+    /// <summary>
+    /// Check if a position has horizontal clearance for the player
+    /// </summary>
     private bool HasHorizontalClearance(Vector3 position, Vector3 wallNormal)
     {
         float[] checkAngles = { 0f, 45f, 90f, 135f, 180f, 225f, 270f, 315f };
@@ -819,6 +927,9 @@ public class TeleportTargetDetector : MonoBehaviour
         return validAngles >= 5; // Need at least 5 of 8 directions clear
     }
     
+    /// <summary>
+    /// Check if a position has stable ground beneath it
+    /// </summary>
     private bool HasStableGround(Vector3 position)
     {
         return Physics.Raycast(
@@ -829,6 +940,9 @@ public class TeleportTargetDetector : MonoBehaviour
         );
     }
     
+    /// <summary>
+    /// Check if a surface is facing away from the player
+    /// </summary>
     private bool IsSurfaceFacingAwayFromPlayer(Vector3 surfaceNormal, Vector3 surfacePoint)
     {
         Vector3 dirToPlayer = (_playerTransform.position - surfacePoint).normalized;
@@ -836,6 +950,9 @@ public class TeleportTargetDetector : MonoBehaviour
         return facingPlayer < -0.6f;
     }
     
+    /// <summary>
+    /// Get a normalized wall normal vector from a surface normal
+    /// </summary>
     private Vector3 GetNormalizedWallNormal(Vector3 normal)
     {
         Vector3 wallNormal = normal;
@@ -847,6 +964,9 @@ public class TeleportTargetDetector : MonoBehaviour
         return wallNormal.normalized;
     }
     
+    /// <summary>
+    /// Get a normalized wall direction from two points
+    /// </summary>
     private Vector3 GetNormalizedWallDirectionFromPoints(Vector3 from, Vector3 to)
     {
         Vector3 direction = from - to;
@@ -858,19 +978,9 @@ public class TeleportTargetDetector : MonoBehaviour
         return direction.normalized;
     }
     
-    private float CalculateAngleAdjustment(float cameraVerticalAngle)
-    {
-        if (cameraVerticalAngle < -10f) // Looking up
-        {
-            return Mathf.Min(Mathf.Abs(cameraVerticalAngle) * 0.05f, 1.0f);
-        }
-        else if (cameraVerticalAngle > 30f) // Looking down
-        {
-            return Mathf.Min(cameraVerticalAngle * 0.02f, 0.5f);
-        }
-        return 0f;
-    }
-    
+    /// <summary>
+    /// Get a distance multiplier based on camera vertical angle
+    /// </summary>
     private float GetDistanceMultiplier(float cameraVerticalAngle)
     {
         if (cameraVerticalAngle < -25f) // Looking up steeply
@@ -884,27 +994,32 @@ public class TeleportTargetDetector : MonoBehaviour
         return 1.0f;
     }
     
+    /// <summary>
+    /// Check if a surface angle is within the ledge angle range
+    /// </summary>
     private bool IsLedgeAngle(float angle)
     {
         return angle >= SURFACE_LEDGE_MIN_ANGLE && angle <= SURFACE_LEDGE_MAX_ANGLE;
     }
     
+    /// <summary>
+    /// Check if a layer is in a layer mask
+    /// </summary>
     private bool IsLayerInMask(int layer, LayerMask mask)
     {
         return ((1 << layer) & mask) != 0;
     }
     
+    /// <summary>
+    /// Log a debug message if debug logging is enabled
+    /// </summary>
     private void LogDebugMessage(string message)
     {
         if (_settings.enableDebugLogging)
         {
-            Debug.Log(message);
+            Debug.Log($"[TeleportTargetDetector] {message}");
         }
     }
-    
-    public Vector3 GetTargetPosition() => _targetPosition;
-    public bool IsTargetingLedge() => _isTargetingLedge;
-    public Vector3 GetSurfaceNormal() => _surfaceNormal;
     #endregion
     
     #region Debug Visualization
@@ -919,6 +1034,9 @@ public class TeleportTargetDetector : MonoBehaviour
         }
     }
     
+    /// <summary>
+    /// Draw debug visualization for the current target
+    /// </summary>
     private void DrawTargetVisualization()
     {
         // Hit point
@@ -944,6 +1062,9 @@ public class TeleportTargetDetector : MonoBehaviour
     }
     
     #if UNITY_EDITOR
+    /// <summary>
+    /// Draw debug labels in the editor
+    /// </summary>
     private void DrawEditorLabels()
     {
         // Distance and height info
@@ -963,6 +1084,9 @@ public class TeleportTargetDetector : MonoBehaviour
         }
     }
     
+    /// <summary>
+    /// Draw teleport trajectory in the editor
+    /// </summary>
     private void DrawTeleportTrajectory()
     {
         if (_settings.showDebugVisualization)
@@ -986,6 +1110,9 @@ public class TeleportTargetDetector : MonoBehaviour
         }
     }
     
+    /// <summary>
+    /// Calculate a point on a quadratic bezier curve
+    /// </summary>
     private Vector3 QuadraticBezier(Vector3 p0, Vector3 p1, Vector3 p2, float t)
     {
         float u = 1 - t;
