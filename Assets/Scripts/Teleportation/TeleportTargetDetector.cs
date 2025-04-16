@@ -3,54 +3,69 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Handles detection and validation of teleportation targets
+/// Improved detector for teleportation targets with robust handling of various surface types
+/// and edge cases in a third-person setup.
 /// </summary>
 public class TeleportTargetDetector : MonoBehaviour
 {
-    #region Constants
-    private const float PLAYER_EYE_HEIGHT = 1.6f;
-    private const float PLAYER_HEIGHT = 2f;
-    private const float PLAYER_RADIUS = 0.4f;
-    private const float MIN_LEDGE_THICKNESS = 0.3f;
-    private const float SURFACE_LEDGE_MIN_ANGLE = 75f;
-    private const float SURFACE_LEDGE_MAX_ANGLE = 105f;
-    private const float BOTTOM_SURFACE_ANGLE = 150f;
-    #endregion
-
-    #region Fields and Properties
+    #region Fields
     // Core references
     private TeleportationSettings _settings;
     private Transform _playerTransform;
     private Transform _cameraTransform;
     private Transform _orientationTransform;
     
-    // Detection state
-    private Vector3 _hitPosition;
+    // Detection results
     private Vector3 _targetPosition;
     private Vector3 _surfaceNormal = Vector3.up;
-    private Vector3 _ledgePosition;
-    private bool _isTargetingLedge;
+    private Vector3 _hitPoint;
+    private bool _isLedgeTarget;
     private bool _hasValidTarget;
     
-    // Debug visualization
-    private RaycastHit[] _raycastHitCache = new RaycastHit[5];
-
-    // Public properties
-    public Vector3 TargetPosition => _targetPosition;
-    public bool IsTargetingLedge => _isTargetingLedge;
-    public Vector3 SurfaceNormal => _surfaceNormal;
+    // Player dimensions
+    private const float PLAYER_HEIGHT = 2.0f;
+    private const float PLAYER_RADIUS = 0.4f;
+    private const float PLAYER_EYE_HEIGHT = 1.6f;
+    
+    // Ledge detection parameters
+    private const float MIN_LEDGE_THICKNESS = 0.3f;
+    private const float LEDGE_MIN_ANGLE = 70f;
+    private const float LEDGE_MAX_ANGLE = 110f;
+    
+    // Cache
+    private RaycastHit[] _rayHits = new RaycastHit[8];
     #endregion
     
-    #region Events
+    #region Events and Properties
     /// <summary>
-    /// Triggered when a valid teleport target is found (position, isLedge, surfaceNormal)
+    /// Triggered when a valid teleport target is found: (position, isLedge, surfaceNormal)
     /// </summary>
     public event Action<Vector3, bool, Vector3> OnTargetFound;
     
     /// <summary>
-    /// Triggered when no valid teleport target is found
+    /// Triggered when no valid target could be found
     /// </summary>
     public event Action OnNoTargetFound;
+    
+    /// <summary>
+    /// Current target position (valid only when HasValidTarget is true)
+    /// </summary>
+    public Vector3 TargetPosition => _targetPosition;
+    
+    /// <summary>
+    /// Whether target is a ledge (wall/vertical surface)
+    /// </summary>
+    public bool IsLedgeTarget => _isLedgeTarget;
+    
+    /// <summary>
+    /// Surface normal at the target location
+    /// </summary>
+    public Vector3 SurfaceNormal => _surfaceNormal;
+    
+    /// <summary>
+    /// Whether a valid teleport target is currently detected
+    /// </summary>
+    public bool HasValidTarget => _hasValidTarget;
     #endregion
     
     #region Initialization
@@ -66,46 +81,47 @@ public class TeleportTargetDetector : MonoBehaviour
         _orientationTransform = orientationTransform;
         
         if (_settings == null)
-        {
-            Debug.LogError("TeleportTargetDetector: No settings provided!");
-        }
-
-        ValidateRequiredComponents();
+            Debug.LogError("TeleportTargetDetector: Settings not assigned!");
+        
+        ValidateSetup();
     }
-
+    
     /// <summary>
-    /// Validate all required components and references
+    /// Validate required components are correctly set up
     /// </summary>
-    private void ValidateRequiredComponents()
+    private void ValidateSetup()
     {
         if (_playerTransform == null)
-        {
-            Debug.LogError("TeleportTargetDetector: No player transform provided!");
-        }
-
+            Debug.LogError("TeleportTargetDetector: Player transform not assigned!");
+        
         if (_cameraTransform == null)
-        {
-            Debug.LogError("TeleportTargetDetector: No camera transform provided!");
-        }
-
+            Debug.LogError("TeleportTargetDetector: Camera transform not assigned!");
+        
         if (_orientationTransform == null)
+            Debug.LogError("TeleportTargetDetector: Orientation transform not assigned!");
+        
+        if (_settings != null)
         {
-            Debug.LogError("TeleportTargetDetector: No orientation transform provided!");
+            if (_settings.teleportableSurfaces.value == 0)
+                Debug.LogWarning("TeleportTargetDetector: No teleportable surfaces defined in settings!");
+            
+            if (_settings.teleportationBlockers.value == 0)
+                Debug.LogWarning("TeleportTargetDetector: No teleportation blockers defined in settings!");
         }
     }
     #endregion
     
     #region Public Methods
     /// <summary>
-    /// Update the target detection (called during aiming state)
+    /// Update teleport target detection (call this every frame during aiming)
     /// </summary>
     public void UpdateTarget()
     {
-        _hasValidTarget = DetectTeleportDestination();
+        _hasValidTarget = DetectTarget();
         
         if (_hasValidTarget)
         {
-            OnTargetFound?.Invoke(_targetPosition, _isTargetingLedge, _surfaceNormal);
+            OnTargetFound?.Invoke(_targetPosition, _isLedgeTarget, _surfaceNormal);
         }
         else
         {
@@ -113,646 +129,560 @@ public class TeleportTargetDetector : MonoBehaviour
         }
     }
     #endregion
-
-    #region Target Detection - Main Methods
+    
+    #region Main Detection Logic
     /// <summary>
-    /// Main method to detect valid teleportation destinations
+    /// Main detection method that finds valid teleport destinations
     /// </summary>
-    private bool DetectTeleportDestination()
+    private bool DetectTarget()
     {
         ResetDetectionState();
         
-        Vector3 playerPosition = _playerTransform.position;
-        Vector3 cameraPosition = _cameraTransform.position;
-        Vector3 cameraForward = _cameraTransform.forward;
-        
-        // Get camera vertical angle
-        float verticalAngle = GetCameraVerticalAngle();
-        
-        // Try different detection methods in sequence
-        
-        // 1. Primary detection: direct camera ray
-        if (TryCameraRayDetection(cameraPosition, cameraForward, playerPosition))
-        {
+        // First try direct camera ray detection (most common case)
+        if (TryDirectRayDetection())
             return true;
+        
+        // If looking up significantly, try vertical detection for higher platforms
+        float verticalAngle = GetCameraVerticalAngle();
+        if (verticalAngle < _settings.verticalAngleThreshold && _settings.floatWhenLookingUp)
+        {
+            if (TryVerticalDetection())
+                return true;
         }
         
-        // 2. Secondary detection: vertical detection when looking up
-        if (_settings.floatWhenLookingUp && 
-            TryVerticalDetection(playerPosition, cameraForward, false))
-        {
+        // Last chance: try distance-limited detection (for cases where target is too far)
+        if (TryDistanceLimitedDetection())
             return true;
+        
+        return false;
+    }
+    
+    /// <summary>
+    /// Try to detect a target by casting a ray directly from the camera
+    /// </summary>
+    private bool TryDirectRayDetection()
+    {
+        // Cast ray from camera
+        Ray cameraRay = new Ray(_cameraTransform.position, _cameraTransform.forward);
+        if (!Physics.Raycast(cameraRay, out RaycastHit hit, 
+                          _settings.maxTeleportationDistance * 1.5f, 
+                          _settings.teleportableSurfaces | _settings.teleportationBlockers))
+        {
+            return false;
+        }
+        
+        // If we hit a blocker, no teleport
+        if (IsInLayerMask(hit.collider.gameObject.layer, _settings.teleportationBlockers))
+        {
+            return false;
+        }
+        
+        _hitPoint = hit.point;
+        _surfaceNormal = hit.normal;
+        
+        // Check if this is a ledge (vertical surface)
+        float surfaceAngle = Vector3.Angle(hit.normal, Vector3.up);
+        _isLedgeTarget = IsLedgeAngle(surfaceAngle);
+        
+        // Get distance from player to hit point
+        float distanceToTarget = Vector3.Distance(_playerTransform.position, hit.point);
+        
+        // Check distance constraints
+        if (distanceToTarget < _settings.minTeleportationDistance || 
+            distanceToTarget > _settings.maxTeleportationDistance)
+        {
+            return false;
+        }
+        
+        // Check if we're looking at ceiling/bottom surface
+        if (Vector3.Dot(hit.normal, Vector3.up) < -0.7f && !_settings.allowBottomSurfaceTargeting)
+        {
+            return false;
+        }
+        
+        // Process based on surface type
+        if (_isLedgeTarget && _settings.enableLedgeClimbing)
+        {
+            return ProcessLedgeTarget(hit);
+        }
+        else
+        {
+            return ProcessGroundTarget(hit);
+        }
+    }
+    
+    /// <summary>
+    /// Try detection for targets beyond max distance by limiting to max range
+    /// </summary>
+    private bool TryDistanceLimitedDetection()
+    {
+        // Cast a ray from camera
+        Ray cameraRay = new Ray(_cameraTransform.position, _cameraTransform.forward);
+        if (!Physics.Raycast(cameraRay, out RaycastHit hit, 100f, 
+                           _settings.teleportableSurfaces | _settings.teleportationBlockers))
+        {
+            return false;
+        }
+        
+        // If we hit a blocker or the hit is within max range, skip
+        if (IsInLayerMask(hit.collider.gameObject.layer, _settings.teleportationBlockers) ||
+            Vector3.Distance(_playerTransform.position, hit.point) <= _settings.maxTeleportationDistance)
+        {
+            return false;
+        }
+        
+        // Calculate clamped position at max distance
+        Vector3 dirToHit = (hit.point - _playerTransform.position).normalized;
+        Vector3 clampedPos = _playerTransform.position + dirToHit * _settings.maxTeleportationDistance;
+        
+        // Cast down from clamped position to find ground
+        if (Physics.Raycast(clampedPos + Vector3.up * 10f, Vector3.down, out RaycastHit groundHit, 
+                         20f, _settings.teleportableSurfaces))
+        {
+            _hitPoint = groundHit.point;
+            _surfaceNormal = groundHit.normal;
+            
+            // Check if this is a ledge
+            float surfaceAngle = Vector3.Angle(groundHit.normal, Vector3.up);
+            _isLedgeTarget = IsLedgeAngle(surfaceAngle);
+            
+            // Process based on surface type
+            if (_isLedgeTarget && _settings.enableLedgeClimbing)
+            {
+                return ProcessLedgeTarget(groundHit);
+            }
+            else
+            {
+                return ProcessGroundTarget(groundHit);
+            }
         }
         
         return false;
     }
     
     /// <summary>
-    /// Try to detect a target by casting a ray from the camera
+    /// Try vertical detection for platforms above the player when looking up
     /// </summary>
-    private bool TryCameraRayDetection(Vector3 cameraPosition, Vector3 cameraForward, Vector3 playerPosition)
+    private bool TryVerticalDetection()
     {
-        // Cast ray from camera
-        Ray cameraRay = new Ray(cameraPosition, cameraForward);
-        if (!Physics.Raycast(cameraRay, out RaycastHit cameraHit, 
-            _settings.maxTeleportationDistance * 2f, 
-            _settings.teleportableSurfaces | _settings.teleportationBlockers))
-        {
-            return false;
-        }
-        
-        // Check if hit a blocker layer
-        if (IsLayerInMask(cameraHit.collider.gameObject.layer, _settings.teleportationBlockers))
-        {
-            return false;
-        }
-        
-        _hitPosition = cameraHit.point;
-        
-        // Calculate distance to hit
-        float distanceToTarget = Vector3.Distance(playerPosition, cameraHit.point);
-        
-        // Check distance constraints
-        if (distanceToTarget > _settings.maxTeleportationDistance || 
-            distanceToTarget < _settings.minTeleportationDistance)
-        {
-            return TryClampedPositionDetection(playerPosition, cameraHit, distanceToTarget);
-        }
-        
-        // Detect surface type
-        float surfaceAngle = Vector3.Angle(cameraHit.normal, Vector3.up);
-        _isTargetingLedge = IsLedgeAngle(surfaceAngle);
-        
-        // Check for underside of platforms
-        if (Vector3.Dot(cameraHit.normal, Vector3.up) < -0.7f && !_settings.allowBottomSurfaceTargeting)
-        {
-            return false;
-        }
-
-        // Process based on surface type
-        if (_isTargetingLedge && _settings.enableLedgeClimbing)
-        {
-            return ProcessLedgeTargeting(cameraHit, distanceToTarget);
-        }
-        else
-        {
-            return ProcessGroundTargeting(cameraHit, distanceToTarget);
-        }
-    }
-    
-    /// <summary>
-    /// Try to detect a target that's beyond max distance by clamping to max range
-    /// </summary>
-    private bool TryClampedPositionDetection(Vector3 playerPosition, RaycastHit cameraHit, float distanceToTarget)
-    {
-        // Only process if target is too far (not too close)
-        if (distanceToTarget <= _settings.maxTeleportationDistance)
-            return false;
-        
-        // Calculate clamped position at max range
-        Vector3 directionToHit = (cameraHit.point - playerPosition).normalized;
-        Vector3 clampedPosition = playerPosition + directionToHit * _settings.maxTeleportationDistance;
-        
-        // Find ground below clamped position
-        if (!Physics.Raycast(clampedPosition + Vector3.up * 10f, Vector3.down, 
-            out RaycastHit groundHit, 20f, _settings.teleportableSurfaces))
-        {
-            return false;
-        }
-        
-        _hitPosition = groundHit.point;
-        
-        // Check surface type
-        float groundSurfaceAngle = Vector3.Angle(groundHit.normal, Vector3.up);
-        _isTargetingLedge = IsLedgeAngle(groundSurfaceAngle);
-        
-        if (_isTargetingLedge && _settings.enableLedgeClimbing)
-        {
-            return ProcessLedgeTargeting(groundHit, _settings.maxTeleportationDistance);
-        }
-        else
-        {
-            return ProcessGroundTargeting(groundHit, _settings.maxTeleportationDistance);
-        }
-    }
-    
-    /// <summary>
-    /// Try to detect a target by projecting forward and down (for floating/up-looking)
-    /// </summary>
-    private bool TryVerticalDetection(Vector3 playerPosition, Vector3 cameraForward, bool isPastThreshold)
-    {
-        // Project camera forward to get horizontal direction
-        Vector3 flatForward = Vector3.ProjectOnPlane(cameraForward, Vector3.up).normalized;
+        // Project camera forward onto horizontal plane
+        Vector3 flatForward = Vector3.ProjectOnPlane(_cameraTransform.forward, Vector3.up).normalized;
         
         // Calculate far look point
-        Vector3 farLookPoint = playerPosition + (flatForward * _settings.maxTeleportationDistance);
+        Vector3 farLookPoint = _playerTransform.position + flatForward * _settings.maxTeleportationDistance;
         
-        // Cast down to find ground
-        if (!Physics.Raycast(farLookPoint + Vector3.up * 50f, Vector3.down, 
-            out RaycastHit groundHit, 100f, _settings.teleportableSurfaces))
+        // Cast ray down from above to find ground
+        if (Physics.Raycast(farLookPoint + Vector3.up * 50f, Vector3.down, out RaycastHit hit, 
+                         100f, _settings.teleportableSurfaces))
         {
-            return false;
+            _hitPoint = hit.point;
+            _surfaceNormal = hit.normal;
+            
+            // Check if this is a ledge
+            float surfaceAngle = Vector3.Angle(hit.normal, Vector3.up);
+            _isLedgeTarget = IsLedgeAngle(surfaceAngle);
+            
+            // Skip if platform is below player (we're looking up)
+            if (hit.point.y < _playerTransform.position.y + 0.5f)
+                return false;
+            
+            // Process based on surface type
+            if (_isLedgeTarget && _settings.enableLedgeClimbing)
+            {
+                return ProcessLedgeTarget(hit);
+            }
+            else
+            {
+                return ProcessGroundTarget(hit);
+            }
         }
         
-        _hitPosition = groundHit.point;
-        
-        // Check if hit is a ledge
-        float surfaceAngle = Vector3.Angle(groundHit.normal, Vector3.up);
-        _isTargetingLedge = IsLedgeAngle(surfaceAngle) && _settings.enableLedgeClimbing;
-        
-        if (_isTargetingLedge)
-        {
-            return ProcessLedgeTargeting(groundHit, _settings.maxTeleportationDistance);
-        }
-        else
-        {
-            return ProcessGroundTargeting(groundHit, _settings.maxTeleportationDistance);
-        }
+        return false;
     }
     #endregion
-
+    
     #region Target Processing
     /// <summary>
-    /// Process a ground (horizontal surface) targeting hit
+    /// Process a ground (horizontal) surface target
     /// </summary>
-    private bool ProcessGroundTargeting(RaycastHit hit, float directDistance)
+    private bool ProcessGroundTarget(RaycastHit hit)
     {
-        // Validation checks
-        if (directDistance < _settings.minTeleportationDistance ||
-            directDistance > _settings.maxTeleportationDistance ||
-            IsPositionBehindPlayer(hit.point))
-        {
-            return false;
-        }
-            
-        // Check for bottom surface
-        float surfaceAngle = Vector3.Angle(hit.normal, Vector3.up);
-        if (surfaceAngle > BOTTOM_SURFACE_ANGLE && !_settings.allowBottomSurfaceTargeting)
+        // Check if target is behind player
+        if (IsPositionBehindPlayer(hit.point))
         {
             return false;
         }
         
-        // Calculate teleport position
-        Vector3 teleportPosition = hit.point + Vector3.up * _settings.groundedHeightOffset;
-        _ledgePosition = hit.point;
-        _surfaceNormal = hit.normal;
+        // Calculate teleport position with height offset
+        Vector3 teleportPos = hit.point + Vector3.up * _settings.groundedHeightOffset;
         
-        // Check visibility and surface orientation
-        if ((_settings.requireDirectLineOfSight && !IsVisibleFromPlayer(teleportPosition)) ||
-            IsSurfaceFacingAwayFromPlayer(hit.normal, hit.point))
+        // Check if we can see the target
+        if (_settings.requireDirectLineOfSight && !IsTargetVisible(teleportPos))
         {
             return false;
         }
         
-        return SetDestinationPosition(teleportPosition);
+        // Check if surface is facing away from player
+        if (IsSurfaceFacingAwayFromPlayer(hit.normal, hit.point))
+        {
+            return false;
+        }
+        
+        // Check for clearance at target position
+        if (!HasPlayerClearance(teleportPos))
+        {
+            return false;
+        }
+        
+        // Check for clear path to target
+        if (IsPathBlocked(_playerTransform.position, teleportPos))
+        {
+            return false;
+        }
+        
+        // Set final target position
+        _targetPosition = teleportPos;
+        
+        return true;
     }
     
     /// <summary>
-    /// Process a ledge (vertical/angled surface) targeting hit
+    /// Process a ledge (vertical) surface target
     /// </summary>
-    private bool ProcessLedgeTargeting(RaycastHit hit, float directDistance)
+    private bool ProcessLedgeTarget(RaycastHit hit)
     {
-        // Bottom surface check
-        float surfaceAngle = Vector3.Angle(hit.normal, Vector3.up);
-        if (surfaceAngle > BOTTOM_SURFACE_ANGLE && !_settings.allowBottomSurfaceTargeting)
+        // Find the top of the ledge
+        Vector3 ledgeTopPosition = FindLedgeTop(hit);
+        if (ledgeTopPosition == Vector3.zero)
         {
             return false;
         }
         
-        // Dynamic range calculation
-        float heightDiff = hit.point.y - _playerTransform.position.y;
-        float verticalFactor = Mathf.Clamp01((heightDiff + 2f) / 4f);
-        float rangeMultiplier = 1f + verticalFactor * 0.5f;
-        
-        float maxRange = Mathf.Min(_settings.maxTeleportationDistance * rangeMultiplier, 
-                        _settings.maxTeleportationDistance * 1.3f);
-        float minDist = _settings.minTeleportationDistance;
-        
-        if (directDistance > maxRange || directDistance < minDist)
+        // Check if target is behind player
+        if (IsPositionBehindPlayer(ledgeTopPosition))
         {
             return false;
         }
         
-        // Wall normal calculation
-        Vector3 wallNormal = GetNormalizedWallNormal(hit.normal);
-        if (wallNormal == Vector3.zero)
+        // Calculate height difference for dynamic offset
+        float heightDiff = ledgeTopPosition.y - _playerTransform.position.y;
+        
+        // Calculate teleport position with appropriate offset
+        Vector3 wallNormal = GetHorizontalNormal(hit.normal);
+        Vector3 teleportPos = ledgeTopPosition + Vector3.up * _settings.ledgeHeightOffset;
+        
+        // Offset from wall based on surface angle
+        float wallOffset = 0.4f; // Base offset from wall
+        teleportPos -= wallNormal * wallOffset;
+        
+        // Check for clearance at target position
+        if (!HasPlayerClearance(teleportPos))
         {
             return false;
         }
         
-        // Find and validate ledge position
-        Vector3 ledgePosition = FindLedgeTopPosition(hit);
-        if (!ValidateLedgePosition(ledgePosition, hit.point, MIN_LEDGE_THICKNESS))
+        // Check if we can see the target
+        if (_settings.requireDirectLineOfSight && !IsTargetVisible(teleportPos))
         {
             return false;
         }
         
-        _ledgePosition = ledgePosition;
-        
-        if (IsPositionBehindPlayer(ledgePosition))
+        // Check for clear path to target
+        if (IsPathBlocked(_playerTransform.position, teleportPos))
         {
             return false;
         }
         
-        // Calculate teleport position
-        Vector3 teleportPosition = CalculateLedgeTeleportPosition(ledgePosition, wallNormal, 
-                                                                 heightDiff, surfaceAngle);
+        // Set final target position
+        _targetPosition = teleportPos;
         
-        // Line of sight check
-        if (_settings.requireDirectLineOfSight && !IsVisibleFromPlayer(teleportPosition))
-        {
-            return false;
-        }
-        
-        return SetDestinationPosition(teleportPosition);
-    }
-    
-    /// <summary>
-    /// Calculate final teleport position for a ledge
-    /// </summary>
-    private Vector3 CalculateLedgeTeleportPosition(Vector3 ledgePosition, Vector3 wallNormal, 
-                                             float heightDiff, float surfaceAngle)
-    {
-        // Height offset calculation - no camera angle dependency
-        float heightFactor = Mathf.Clamp01(Mathf.Abs(heightDiff) / 2f);
-        
-        // For same-height platforms, use consistent offset
-        float dynamicOffset = Mathf.Abs(heightDiff) < 0.5f ? 
-                            Mathf.Lerp(0.6f, 0.8f, heightFactor) : 
-                            Mathf.Lerp(0.5f, _settings.ledgeHeightOffset, heightFactor);
-        
-        // Calculate base position
-        Vector3 teleportPosition = ledgePosition + Vector3.up * dynamicOffset;
-        
-        // Apply wall offset based on surface angle
-        float baseOffset = Mathf.Lerp(0.25f, 0.4f, (surfaceAngle - SURFACE_LEDGE_MIN_ANGLE) / 30f);
-        
-        // Use consistent offset for same-height platforms
-        float heightAdjustedOffset = Mathf.Abs(heightDiff) < 0.5f ?
-                                baseOffset * 1.2f : // More offset for same-height platforms
-                                baseOffset * (1f + heightFactor * 0.5f);
-        
-        teleportPosition -= wallNormal * heightAdjustedOffset;
-        
-        // Ensure minimum ground clearance
-        EnsureMinimumGroundClearance(ref teleportPosition, 0.25f);
-        
-        return teleportPosition;
+        return true;
     }
     #endregion
     
     #region Ledge Detection
     /// <summary>
-    /// Structure to store information about a potential ledge
+    /// Find the top position of a ledge/wall
     /// </summary>
-    private struct LedgeCandidate
+    private Vector3 FindLedgeTop(RaycastHit hit)
     {
-        public Vector3 position;
-        public Vector3 normal;
-        public float thickness;
-        public float distanceScore;
-        public float normalScore;
-        public float heightScore;
-        public float edgeScore; // Property to prioritize true edges
-        
-        public float CalculateTotalScore()
+        // Get horizontal normal of the wall
+        Vector3 wallNormal = GetHorizontalNormal(hit.normal);
+        if (wallNormal.magnitude < 0.1f) // Not a valid wall
         {
-            const float thicknessWeight = 0.35f;
-            const float distanceWeight = 0.25f;
-            const float normalWeight = 0.15f;
-            const float heightWeight = 0.15f;
-            const float edgeWeight = 0.1f; // Weight for edge proximity
-            
-            float thicknessScore = Mathf.Clamp01((thickness - 0.3f) / 1.7f);
-            
-            return (thicknessScore * thicknessWeight) + 
-                (distanceScore * distanceWeight) + 
-                (normalScore * normalWeight) + 
-                (heightScore * heightWeight) +
-                (edgeScore * edgeWeight);
-        }
-    }
-    
-    /// <summary>
-    /// Find the top position of a ledge from an initial hit
-    /// </summary>
-    private Vector3 FindLedgeTopPosition(RaycastHit hit)
-    {
-        Vector3 wallNormal = GetNormalizedWallNormal(hit.normal);
-        if (wallNormal == Vector3.zero)
-        {
-            return hit.point;
+            return Vector3.zero;
         }
         
-        float wallVerticalAngle = Vector3.Angle(hit.normal, Vector3.up);
-        if (!IsLedgeAngle(wallVerticalAngle))
-        {
-            return hit.point;
-        }
+        // Calculate search height based on hit position
+        float searchHeight = Mathf.Max(2.0f, hit.point.y - _playerTransform.position.y + 2.0f);
         
-        // Calculate search parameters - no angle-based adjustment
-        float heightDiff = hit.point.y - _playerTransform.position.y;
+        // Cast multiple rays to find the ledge top
+        Vector3 searchStartPos = hit.point + Vector3.up * searchHeight;
         
-        // Fix for equal-height platforms - use consistent search height
-        float baseSearchHeight = 1.8f;
-        float heightAdjustment = Mathf.Abs(heightDiff) < 0.5f ? 0.3f : 
-                                Mathf.Clamp01(heightDiff / 4f) * 0.5f;
-        float searchHeight = baseSearchHeight + heightAdjustment;
+        // Try multiple distances from wall
+        float[] searchDistances = { 0.2f, 0.4f, 0.6f, 0.8f, 1.0f, 1.2f, 1.5f };
+        List<LedgePoint> candidates = new List<LedgePoint>();
         
-        // Configure search origin with fixed position
-        Vector3 aboveHitPoint = hit.point + Vector3.up * searchHeight;
-        
-        // Use more search distances for platforms near player height
-        List<LedgeCandidate> candidates = new List<LedgeCandidate>();
-        float[] searchDistances = Mathf.Abs(heightDiff) < 0.5f ?
-            new float[] { 0.05f, 0.1f, 0.15f, 0.2f, 0.25f, 0.3f, 0.4f, 0.5f, 0.6f, 0.8f, 1.0f } :
-            new float[] { 0.05f, 0.1f, 0.2f, 0.3f, 0.4f, 0.6f, 0.8f, 1.0f, 1.5f };
-        
+        // Search for potential ledge points
         foreach (float distance in searchDistances)
         {
-            // Use consistent scaling regardless of camera angle
-            float scaledDistance = distance * (1f + Mathf.Clamp01(Mathf.Abs(heightDiff) / 3f) * 0.2f);
-            ScanForLedgeCandidatesAtDistance(hit, wallNormal, aboveHitPoint, scaledDistance, searchHeight, candidates);
-        }
-        
-        // Find best candidate
-        LedgeCandidate bestCandidate = FindBestLedgeCandidate(candidates, hit.point);
-        
-        // Fallback if no candidates found
-        if (bestCandidate.position == Vector3.zero)
-        {
-            return hit.point + Vector3.up * Mathf.Max(0.8f, heightDiff * 0.4f);
-        }
-        
-        // Store surface normal
-        _surfaceNormal = bestCandidate.normal;
-        
-        // Anti-phasing safety offset
-        float safetyOffset = Mathf.Lerp(0.35f, 0.2f, Mathf.Clamp01((bestCandidate.thickness - 0.3f) / 1.7f));
-        
-        // Extra offset for platform edges to prevent phasing
-        if (Mathf.Abs(heightDiff) < 0.8f && bestCandidate.thickness < 0.8f)
-        {
-            safetyOffset += 0.1f; // Add extra offset for platform edges at similar height
-        }
-        
-        // Apply vertical offset based on thickness (thinner edges need more vertical clearance)
-        float verticalOffset = bestCandidate.thickness < 0.5f ? 0.12f : 0.08f;
-        
-        // Return final position
-        return bestCandidate.position - wallNormal * safetyOffset + Vector3.up * verticalOffset;
-    }
-    
-    /// <summary>
-    /// Scan for ledge candidates with varying camera angles
-    /// </summary>
-    private List<LedgeCandidate> ScanForLedgeCandidates(RaycastHit hit, Vector3 wallNormal, 
-                                                      Vector3 aboveHitPoint, float searchHeight,
-                                                      float cameraVerticalAngle)
-    {
-        float heightDiff = hit.point.y - _playerTransform.position.y;
-        List<LedgeCandidate> candidates = new List<LedgeCandidate>();
-        
-        // Configure search distances
-        float[] searchDistances = { 0.05f, 0.1f, 0.15f, 0.2f, 0.3f, 0.4f, 0.5f, 0.7f, 0.9f, 1.2f, 1.5f };
-        
-        foreach (float distance in searchDistances)
-        {
-            // Adjust distance scaling based on camera angle
-            float distanceMultiplier = GetDistanceMultiplier(cameraVerticalAngle);
-            float scaledDistance = distance * (1f + Mathf.Clamp01(heightDiff / 4f) * 0.3f) * distanceMultiplier;
+            Vector3 searchPos = searchStartPos - wallNormal * distance;
             
-            // Scan at the current distance
-            ScanForLedgeCandidatesAtDistance(hit, wallNormal, aboveHitPoint, scaledDistance, 
-                                           searchHeight, candidates);
-        }
-        
-        return candidates;
-    }
-    
-    /// <summary>
-    /// Scan for ledge candidates at a specific distance
-    /// </summary>
-    private void ScanForLedgeCandidatesAtDistance(RaycastHit hit, Vector3 wallNormal, Vector3 aboveHitPoint,
-                                           float distance, float searchHeight, List<LedgeCandidate> candidates)
-    {
-        // Use finer grid for more precise detection
-        float horizontalStep = 0.15f;
-        float verticalStep = 0.1f;
-        
-        for (float horizontalOffset = -0.3f; horizontalOffset <= 0.3f; horizontalOffset += horizontalStep)
-        {
-            for (float verticalOffset = -0.3f; verticalOffset <= 0.3f; verticalOffset += verticalStep)
+            // Cast ray downward to find surface
+            if (Physics.Raycast(searchPos, Vector3.down, out RaycastHit topHit, 
+                            searchHeight * 2f, _settings.teleportableSurfaces))
             {
-                // Calculate check point
-                Vector3 checkPoint = aboveHitPoint - wallNormal * distance;
-                Vector3 horizontalDir = Vector3.Cross(wallNormal, Vector3.up).normalized;
-                checkPoint += horizontalDir * horizontalOffset + Vector3.up * verticalOffset;
-                
-                // Cast ray down to find ledge surface
-                if (Physics.Raycast(checkPoint, Vector3.down, out RaycastHit topHit,
-                    searchHeight * 2f, _settings.teleportableSurfaces))
+                // Verify it's a horizontal surface (ledge top)
+                float angle = Vector3.Angle(topHit.normal, Vector3.up);
+                if (angle < 30f) // Nearly horizontal
                 {
-                    // Check if flat enough
-                    float upDot = Vector3.Dot(topHit.normal, Vector3.up);
-                    if (upDot > 0.85f) // Slightly more forgiving angle check
+                    // Check ledge thickness
+                    float thickness = MeasureLedgeThickness(topHit.point, wallNormal);
+                    
+                    if (thickness >= MIN_LEDGE_THICKNESS)
                     {
-                        // Calculate ledge thickness
-                        float thickness = CalculateLedgeThickness(topHit.point, wallNormal);
-                        
-                        // Add candidate if thick enough
-                        if (thickness >= MIN_LEDGE_THICKNESS)
+                        // Add to candidates
+                        candidates.Add(new LedgePoint
                         {
-                            // Calculate edge score - prefer thinner ledges for equal-height platforms
-                            float edgeScore = 0f;
-                            if (thickness < 1.0f)
-                            {
-                                edgeScore = 1f - Mathf.Clamp01(thickness / 1.0f);
-                            }
-                            
-                            // Boost score for ledges at player height level
-                            float heightDiffToPlayer = Mathf.Abs(topHit.point.y - _playerTransform.position.y);
-                            float sameHeightBonus = heightDiffToPlayer < 0.5f ? 0.3f : 0f;
-                            
-                            candidates.Add(new LedgeCandidate
-                            {
-                                position = topHit.point,
-                                normal = topHit.normal,
-                                thickness = thickness,
-                                distanceScore = 1f - (distance / 2.5f) + edgeScore * 0.3f + sameHeightBonus,
-                                normalScore = upDot,
-                                heightScore = topHit.point.y >= hit.point.y ? 1f : 0f,
-                                edgeScore = edgeScore
-                            });
-                        }
+                            position = topHit.point,
+                            normal = topHit.normal,
+                            thickness = thickness,
+                            distance = distance,
+                            height = topHit.point.y
+                        });
                     }
                 }
             }
         }
-    }
-    
-    /// <summary>
-    /// Calculate the thickness of a ledge
-    /// </summary>
-    private float CalculateLedgeThickness(Vector3 ledgePoint, Vector3 wallNormal)
-    {
-        float maxThicknessCheck = 2f;
         
-        // Try direct raycast first
-        if (Physics.Raycast(ledgePoint + Vector3.up * 0.05f, -wallNormal, 
-                          out RaycastHit backHit, maxThicknessCheck, _settings.teleportableSurfaces))
-        {
-            // Check if we hit immediately (might be on wall)
-            if (backHit.distance < 0.05f)
-            {
-                if (Physics.Raycast(ledgePoint + Vector3.up * 0.1f, -wallNormal, 
-                                  out backHit, maxThicknessCheck, _settings.teleportableSurfaces))
-                {
-                    return backHit.distance;
-                }
-                return 0f;
-            }
-            return backHit.distance;
-        }
-        
-        // No direct hit - do interval check
-        for (float distance = 0.1f; distance <= maxThicknessCheck; distance += 0.1f)
-        {
-            Vector3 checkPoint = ledgePoint - wallNormal * distance;
-            if (!Physics.Raycast(checkPoint + Vector3.up * 0.1f, Vector3.down,
-                               0.2f, _settings.teleportableSurfaces))
-            {
-                return distance; // Found edge
-            }
-        }
-        
-        return maxThicknessCheck; // Very thick ledge
-    }
-    
-    /// <summary>
-    /// Find the best ledge candidate from a list
-    /// </summary>
-    private LedgeCandidate FindBestLedgeCandidate(List<LedgeCandidate> candidates, Vector3 hitPoint)
-    {
+        // If no candidates, give up
         if (candidates.Count == 0)
-            return new LedgeCandidate();
-        
-        // Sort by score (highest first)
-        candidates.Sort((a, b) => b.CalculateTotalScore().CompareTo(a.CalculateTotalScore()));
-        
-        // Take top candidates and validate
-        for (int i = 0; i < Mathf.Min(3, candidates.Count); i++)
         {
-            var candidate = candidates[i];
-            if (ValidateLedgePosition(candidate.position, hitPoint, candidate.thickness))
+            return Vector3.zero;
+        }
+        
+        // Find best candidate (prefer closer to wall, thicker ledges, higher positions)
+        LedgePoint bestLedge = candidates[0];
+        float bestScore = ScoreLedgePoint(bestLedge);
+        
+        for (int i = 1; i < candidates.Count; i++)
+        {
+            float score = ScoreLedgePoint(candidates[i]);
+            if (score > bestScore)
             {
-                return candidate;
+                bestScore = score;
+                bestLedge = candidates[i];
             }
         }
         
-        return new LedgeCandidate();
+        // Validate final ledge position
+        if (!ValidateLedgePosition(bestLedge.position, wallNormal))
+        {
+            return Vector3.zero;
+        }
+        
+        // Store surface normal for later use
+        _surfaceNormal = bestLedge.normal;
+        
+        // Apply a small safety offset from wall to prevent clipping
+        float safetyOffset = 0.1f;
+        return bestLedge.position - wallNormal * safetyOffset;
     }
     
     /// <summary>
-    /// Validate a ledge position for clearance and stability
+    /// Measure the thickness of a ledge
     /// </summary>
-    private bool ValidateLedgePosition(Vector3 position, Vector3 hitPoint, float thickness)
+    private float MeasureLedgeThickness(Vector3 ledgePoint, Vector3 wallNormal)
     {
-        // Get normalized wall normal
-        Vector3 wallNormal = GetNormalizedWallDirectionFromPoints(hitPoint, position);
-        if (wallNormal == Vector3.zero)
-            return false;
+        float maxThickness = 3.0f;
         
-        // Special handling for platform edges at player height level
-        float heightDiffToPlayer = Mathf.Abs(position.y - _playerTransform.position.y);
-        bool isSameHeightPlatform = heightDiffToPlayer < 0.5f;
-        
-        // For platform edges, require more clearance
-        if (isSameHeightPlatform)
+        // Cast ray backwards from ledge point
+        if (Physics.Raycast(ledgePoint + Vector3.up * 0.05f, -wallNormal, out RaycastHit hit, 
+                         maxThickness, _settings.teleportableSurfaces))
         {
-            if (!HasPlatformEdgeClearance(position, wallNormal))
-                return false;
-        }
-        else
-        {
-            // Standard checks for ledges at different heights
-            if (!HasVerticalClearance(position))
-                return false;
-                
-            if (!HasHorizontalClearance(position, wallNormal))
-                return false;
+            return hit.distance;
         }
         
-        // Adjust thickness requirement for same-height platforms
-        float minThickness = isSameHeightPlatform ? 0.25f : MIN_LEDGE_THICKNESS;
+        // Step by step thickness check if raycast fails
+        for (float distance = 0.3f; distance <= maxThickness; distance += 0.1f)
+        {
+            Vector3 checkPoint = ledgePoint - wallNormal * distance + Vector3.up * 0.05f;
+            
+            // Cast down to see if we're still on the ledge
+            if (!Physics.Raycast(checkPoint, Vector3.down, 0.2f, _settings.teleportableSurfaces))
+            {
+                // Reached edge of ledge
+                return distance;
+            }
+        }
         
-        // Check thickness
-        if (thickness < minThickness)
-            return false;
-        
-        // Check stable ground
-        return HasStableGround(position);
+        return maxThickness; // Very thick ledge
     }
-
+    
     /// <summary>
-    /// Check if a platform edge has enough clearance for the player
+    /// Score a ledge point based on ideal properties
     /// </summary>
-    private bool HasPlatformEdgeClearance(Vector3 position, Vector3 wallNormal)
+    private float ScoreLedgePoint(LedgePoint ledge)
     {
-        // Specialized clearance check for platform edges
+        // Prioritize ledges based on:
+        // 1. Thickness (thicker is better, to a point)
+        // 2. Distance from wall (closer is better)
+        // 3. Height (higher is better)
         
-        // Check vertical clearance first
-        if (Physics.SphereCast(
-            position + Vector3.up * PLAYER_HEIGHT,
-            PLAYER_RADIUS * 0.7f, // Slightly reduced radius for platform edges
-            Vector3.down,
-            out RaycastHit clearanceHit,
-            PLAYER_HEIGHT - 0.1f,
-            _settings.teleportationBlockers))
+        float thicknessScore = Mathf.Clamp01((ledge.thickness - 0.3f) / 2.0f);
+        float distanceScore = 1.0f - Mathf.Clamp01(ledge.distance / 2.0f);
+        float heightScore = Mathf.Clamp01((ledge.height - _playerTransform.position.y) / 5.0f);
+        
+        // Combined score with weighting
+        return (thicknessScore * 0.5f) + (distanceScore * 0.3f) + (heightScore * 0.2f);
+    }
+    
+    /// <summary>
+    /// Validate a ledge position for player clearance and stability
+    /// </summary>
+    private bool ValidateLedgePosition(Vector3 position, Vector3 wallNormal)
+    {
+        // Check for vertical clearance (enough room for player)
+        if (Physics.SphereCast(position + Vector3.up * PLAYER_HEIGHT, PLAYER_RADIUS * 0.8f,
+                           Vector3.down, out RaycastHit hit, PLAYER_HEIGHT - 0.5f, 
+                           _settings.teleportationBlockers))
         {
             return false;
         }
         
-        // For platform edges, check specifically in front direction
-        if (Physics.Raycast(
-            position + Vector3.up * 0.5f,
-            -wallNormal, // Direction toward the platform
-            PLAYER_RADIUS * 0.8f,
-            _settings.teleportationBlockers))
+        // Check for horizontal clearance in front of wall
+        if (Physics.Raycast(position + Vector3.up * 1.0f, -wallNormal, 
+                         PLAYER_RADIUS, _settings.teleportationBlockers))
         {
             return false;
         }
         
-        // And check perpendicular directions
-        Vector3 sideDir = Vector3.Cross(wallNormal, Vector3.up).normalized;
-        if (Physics.Raycast(position + Vector3.up * 0.5f, sideDir, PLAYER_RADIUS, _settings.teleportationBlockers) ||
-            Physics.Raycast(position + Vector3.up * 0.5f, -sideDir, PLAYER_RADIUS, _settings.teleportationBlockers))
+        // Check for stable ground to stand on
+        if (!Physics.Raycast(position + Vector3.up * 0.1f, Vector3.down, 
+                          0.3f, _settings.teleportableSurfaces))
         {
             return false;
         }
         
         return true;
     }
+    
+    /// <summary>
+    /// Structure for storing ledge candidate information
+    /// </summary>
+    private struct LedgePoint
+    {
+        public Vector3 position;
+        public Vector3 normal;
+        public float thickness;
+        public float distance;
+        public float height;
+    }
     #endregion
     
     #region Utility Methods
     /// <summary>
-    /// Reset the detection state for a new frame
+    /// Reset state for new detection pass
     /// </summary>
     private void ResetDetectionState()
     {
-        _hitPosition = Vector3.zero;
-        _isTargetingLedge = false;
         _hasValidTarget = false;
+        _isLedgeTarget = false;
+        _hitPoint = Vector3.zero;
         _surfaceNormal = Vector3.up;
     }
     
     /// <summary>
-    /// Get the vertical angle of the camera (positive = looking down, negative = looking up)
+    /// Check if a position is behind the player (based on orientation)
+    /// </summary>
+    private bool IsPositionBehindPlayer(Vector3 position)
+    {
+        Vector3 dirToPosition = position - _playerTransform.position;
+        float angle = Vector3.Angle(_orientationTransform.forward, dirToPosition);
+        return angle > _settings.maxLookAngle;
+    }
+    
+    /// <summary>
+    /// Check if a position is visible from the player's eye position
+    /// </summary>
+    private bool IsTargetVisible(Vector3 position)
+    {
+        Vector3 eyePos = _playerTransform.position + Vector3.up * PLAYER_EYE_HEIGHT;
+        Vector3 dirToTarget = position - eyePos;
+        
+        return !Physics.Raycast(eyePos, dirToTarget.normalized, 
+                             dirToTarget.magnitude, _settings.teleportationBlockers);
+    }
+    
+    /// <summary>
+    /// Check if there's enough clearance for the player at a position
+    /// </summary>
+    private bool HasPlayerClearance(Vector3 position)
+    {
+        // Use capsule cast to check for player clearance
+        return !Physics.CheckCapsule(
+            position + Vector3.up * PLAYER_RADIUS,
+            position + Vector3.up * (PLAYER_HEIGHT - PLAYER_RADIUS),
+            PLAYER_RADIUS,
+            _settings.teleportationBlockers
+        );
+    }
+    
+    /// <summary>
+    /// Check if path from player to target is blocked
+    /// </summary>
+    private bool IsPathBlocked(Vector3 startPos, Vector3 endPos)
+    {
+        Vector3 direction = endPos - startPos;
+        float distance = direction.magnitude;
+        
+        // Slightly raise origin to avoid ground collision
+        startPos += Vector3.up * 0.1f;
+        
+        // Use capsule cast to check path (player body shape)
+        return Physics.CapsuleCast(
+            startPos + Vector3.up * PLAYER_RADIUS,
+            startPos + Vector3.up * (PLAYER_HEIGHT - PLAYER_RADIUS),
+            PLAYER_RADIUS,
+            direction.normalized,
+            distance,
+            _settings.teleportationBlockers
+        );
+    }
+    
+    /// <summary>
+    /// Get just the horizontal component of a normal (for walls)
+    /// </summary>
+    private Vector3 GetHorizontalNormal(Vector3 normal)
+    {
+        Vector3 horizontalNormal = normal;
+        horizontalNormal.y = 0;
+        
+        if (horizontalNormal.magnitude < 0.01f)
+            return Vector3.zero;
+            
+        return horizontalNormal.normalized;
+    }
+    
+    /// <summary>
+    /// Check if a surface normal is facing away from the player
+    /// </summary>
+    private bool IsSurfaceFacingAwayFromPlayer(Vector3 normal, Vector3 point)
+    {
+        Vector3 dirToPlayer = (_playerTransform.position - point).normalized;
+        float facingDot = Vector3.Dot(normal, dirToPlayer);
+        return facingDot < -0.5f; // Normal pointing opposite from player
+    }
+    
+    /// <summary>
+    /// Get the vertical angle of the camera (negative = looking up)
     /// </summary>
     private float GetCameraVerticalAngle()
     {
+        // Project forward onto horizontal plane
         Vector3 flatForward = Vector3.ProjectOnPlane(_cameraTransform.forward, Vector3.up).normalized;
+        
+        // Calculate angle between flat forward and actual forward
         return Vector3.SignedAngle(
             flatForward,
             _cameraTransform.forward,
@@ -761,268 +691,26 @@ public class TeleportTargetDetector : MonoBehaviour
     }
     
     /// <summary>
-    /// Check if a position is behind the player's look direction
-    /// </summary>
-    private bool IsPositionBehindPlayer(Vector3 position)
-    {
-        Vector3 directionToPosition = position - _playerTransform.position;
-        float angleToTarget = Vector3.Angle(_orientationTransform.forward, directionToPosition);
-        return angleToTarget > _settings.maxLookAngle;
-    }
-    
-    /// <summary>
-    /// Check if a position is visible from the player
-    /// </summary>
-    private bool IsVisibleFromPlayer(Vector3 targetPoint)
-    {
-        Vector3 playerEyePosition = _playerTransform.position + Vector3.up * PLAYER_EYE_HEIGHT;
-        Vector3 directionToTarget = targetPoint - playerEyePosition;
-        float distanceToTarget = directionToTarget.magnitude;
-        
-        return !Physics.Raycast(playerEyePosition, directionToTarget.normalized,
-            distanceToTarget, _settings.teleportationBlockers);
-    }
-    
-    /// <summary>
-    /// Set the final teleport destination position after validation
-    /// </summary>
-    private bool SetDestinationPosition(Vector3 teleportPosition)
-    {
-        // First make sure we're not misteleporting to a location the player isn't looking at
-        // Calculate angle between camera forward and direction to teleport
-        Vector3 directionToTarget = teleportPosition - _cameraTransform.position;
-        float angleToCameraForward = Vector3.Angle(_cameraTransform.forward, directionToTarget);
-        
-        // If angle is too large, this might be a misteleport
-        if (angleToCameraForward > 45f)
-        {
-            // Check if there's a more direct target in between
-            if (Physics.Raycast(_cameraTransform.position, _cameraTransform.forward, 
-                            out RaycastHit directHit, 
-                            Vector3.Distance(_cameraTransform.position, teleportPosition) * 0.8f, 
-                            _settings.teleportableSurfaces))
-            {
-                LogDebugMessage("Teleport rejected: Target not directly in view");
-                return false;
-            }
-        }
-        
-        // Check if path passes through solid objects
-        if (IsTeleportPathBlocked(_playerTransform.position, teleportPosition))
-        {
-            LogDebugMessage("Teleport blocked: Path intersects with solid geometry");
-            return false;
-        }
-        
-        // Ensure minimum clearance
-        if (_isTargetingLedge)
-        {
-            EnsureMinimumGroundClearance(ref teleportPosition, 0.2f);
-        }
-        
-        // Check surface orientation
-        if (_surfaceNormal != Vector3.zero)
-        {
-            Vector3 dirToPlayer = (_playerTransform.position - teleportPosition).normalized;
-            float dotProduct = Vector3.Dot(_surfaceNormal, dirToPlayer);
-            
-            if (dotProduct < -0.7f) // Surface facing away from player
-            {
-                LogDebugMessage("Teleport blocked: Target surface facing away from player");
-                return false;
-            }
-        }
-        
-        // Final obstruction check
-        bool isBlocked = Physics.SphereCast(
-            _playerTransform.position + Vector3.up * 1f,
-            0.5f,
-            directionToTarget.normalized,
-            out RaycastHit blockHit,
-            directionToTarget.magnitude,
-            _settings.teleportationBlockers
-        );
-        
-        if (isBlocked)
-            return false;
-        
-        _hasValidTarget = true;
-        _targetPosition = teleportPosition;
-        
-        return true;
-    }
-    
-    /// <summary>
-    /// Check if the teleport path is blocked by obstacles
-    /// </summary>
-    private bool IsTeleportPathBlocked(Vector3 startPosition, Vector3 endPosition)
-    {
-        Vector3 direction = endPosition - startPosition;
-        float distance = direction.magnitude;
-        
-        startPosition += Vector3.up * 0.1f; // Avoid starting inside ground
-        
-        return Physics.CapsuleCast(
-            startPosition,
-            startPosition + Vector3.up * 1.7f, // Player height
-            PLAYER_RADIUS,
-            direction.normalized,
-            out RaycastHit hit,
-            distance,
-            _settings.teleportationBlockers
-        );
-    }
-    
-    /// <summary>
-    /// Ensure the teleport position has minimum ground clearance
-    /// </summary>
-    private void EnsureMinimumGroundClearance(ref Vector3 position, float minClearance)
-    {
-        if (Physics.Raycast(position, Vector3.down, out RaycastHit surfaceHit, 0.5f, _settings.teleportableSurfaces))
-        {
-            float currentClearance = position.y - surfaceHit.point.y;
-            if (currentClearance < minClearance)
-            {
-                position.y = surfaceHit.point.y + minClearance;
-            }
-        }
-    }
-    
-    /// <summary>
-    /// Check if a position has vertical clearance for the player
-    /// </summary>
-    private bool HasVerticalClearance(Vector3 position)
-    {
-        return !Physics.SphereCast(
-            position + Vector3.up * PLAYER_HEIGHT,
-            PLAYER_RADIUS * 0.8f,
-            Vector3.down,
-            out RaycastHit clearanceHit,
-            PLAYER_HEIGHT - 0.1f,
-            _settings.teleportationBlockers
-        );
-    }
-    
-    /// <summary>
-    /// Check if a position has horizontal clearance for the player
-    /// </summary>
-    private bool HasHorizontalClearance(Vector3 position, Vector3 wallNormal)
-    {
-        float[] checkAngles = { 0f, 45f, 90f, 135f, 180f, 225f, 270f, 315f };
-        int validAngles = 0;
-        
-        foreach (float angle in checkAngles)
-        {
-            Vector3 checkDir = Quaternion.Euler(0, angle, 0) * wallNormal;
-            bool clear = !Physics.Raycast(
-                position + Vector3.up * 0.5f,
-                checkDir,
-                PLAYER_RADIUS * 1.2f,
-                _settings.teleportationBlockers
-            );
-            
-            if (clear) validAngles++;
-        }
-        
-        return validAngles >= 5; // Need at least 5 of 8 directions clear
-    }
-    
-    /// <summary>
-    /// Check if a position has stable ground beneath it
-    /// </summary>
-    private bool HasStableGround(Vector3 position)
-    {
-        return Physics.Raycast(
-            position + Vector3.up * 0.1f,
-            Vector3.down,
-            0.3f,
-            _settings.teleportableSurfaces
-        );
-    }
-    
-    /// <summary>
-    /// Check if a surface is facing away from the player
-    /// </summary>
-    private bool IsSurfaceFacingAwayFromPlayer(Vector3 surfaceNormal, Vector3 surfacePoint)
-    {
-        Vector3 dirToPlayer = (_playerTransform.position - surfacePoint).normalized;
-        float facingPlayer = Vector3.Dot(surfaceNormal, dirToPlayer);
-        return facingPlayer < -0.6f;
-    }
-    
-    /// <summary>
-    /// Get a normalized wall normal vector from a surface normal
-    /// </summary>
-    private Vector3 GetNormalizedWallNormal(Vector3 normal)
-    {
-        Vector3 wallNormal = normal;
-        wallNormal.y = 0;
-        
-        if (wallNormal.magnitude <= 0.01f)
-            return Vector3.zero;
-            
-        return wallNormal.normalized;
-    }
-    
-    /// <summary>
-    /// Get a normalized wall direction from two points
-    /// </summary>
-    private Vector3 GetNormalizedWallDirectionFromPoints(Vector3 from, Vector3 to)
-    {
-        Vector3 direction = from - to;
-        direction.y = 0;
-        
-        if (direction.magnitude <= 0.01f)
-            return Vector3.zero;
-            
-        return direction.normalized;
-    }
-    
-    /// <summary>
-    /// Get a distance multiplier based on camera vertical angle
-    /// </summary>
-    private float GetDistanceMultiplier(float cameraVerticalAngle)
-    {
-        if (cameraVerticalAngle < -25f) // Looking up steeply
-        {
-            return 0.7f;
-        }
-        else if (cameraVerticalAngle > 40f) // Looking down steeply
-        {
-            return 1.2f;
-        }
-        return 1.0f;
-    }
-    
-    /// <summary>
-    /// Check if a surface angle is within the ledge angle range
+    /// Check if an angle falls within the ledge angle range
     /// </summary>
     private bool IsLedgeAngle(float angle)
     {
-        return angle >= SURFACE_LEDGE_MIN_ANGLE && angle <= SURFACE_LEDGE_MAX_ANGLE;
+        return angle >= LEDGE_MIN_ANGLE && angle <= LEDGE_MAX_ANGLE;
     }
     
     /// <summary>
     /// Check if a layer is in a layer mask
     /// </summary>
-    private bool IsLayerInMask(int layer, LayerMask mask)
+    private bool IsInLayerMask(int layer, LayerMask mask)
     {
         return ((1 << layer) & mask) != 0;
-    }
-    
-    /// <summary>
-    /// Log a debug message if debug logging is enabled
-    /// </summary>
-    private void LogDebugMessage(string message)
-    {
-        if (_settings.enableDebugLogging)
-        {
-            Debug.Log($"[TeleportTargetDetector] {message}");
-        }
     }
     #endregion
     
     #region Debug Visualization
+    /// <summary>
+    /// Draw debug visualization in the scene view
+    /// </summary>
     private void OnDrawGizmos()
     {
         if (!Application.isPlaying || _settings == null || !_settings.showDebugVisualization)
@@ -1030,96 +718,36 @@ public class TeleportTargetDetector : MonoBehaviour
             
         if (_hasValidTarget)
         {
-            DrawTargetVisualization();
-        }
-    }
-    
-    /// <summary>
-    /// Draw debug visualization for the current target
-    /// </summary>
-    private void DrawTargetVisualization()
-    {
-        // Hit point
-        Gizmos.color = Color.green;
-        Gizmos.DrawWireSphere(_hitPosition, 0.2f);
-        
-        // Target position
-        Gizmos.color = new Color(0f, 1f, 1f, 0.8f);
-        Gizmos.DrawWireSphere(_targetPosition, 0.3f);
-        
-        // Surface normal
-        Gizmos.color = Color.blue;
-        Gizmos.DrawRay(_hitPosition, _surfaceNormal * 1f);
-        
-        // Line to target
-        Gizmos.color = Color.yellow;
-        Gizmos.DrawLine(_playerTransform.position, _targetPosition);
-        
-        #if UNITY_EDITOR
-        DrawEditorLabels();
-        DrawTeleportTrajectory();
-        #endif
-    }
-    
-    #if UNITY_EDITOR
-    /// <summary>
-    /// Draw debug labels in the editor
-    /// </summary>
-    private void DrawEditorLabels()
-    {
-        // Distance and height info
-        UnityEditor.Handles.color = Color.white;
-        float distance = Vector3.Distance(_playerTransform.position, _targetPosition);
-        UnityEditor.Handles.Label(
-            (_playerTransform.position + _targetPosition) * 0.5f,
-            $"Distance: {distance:F2}m\n" +
-            $"Height Δ: {(_targetPosition.y - _playerTransform.position.y):F2}m"
-        );
-        
-        // Ledge label
-        if (_isTargetingLedge)
-        {
-            UnityEditor.Handles.color = Color.yellow;
-            UnityEditor.Handles.Label(_hitPosition + Vector3.up * 0.5f, "LEDGE");
-        }
-    }
-    
-    /// <summary>
-    /// Draw teleport trajectory in the editor
-    /// </summary>
-    private void DrawTeleportTrajectory()
-    {
-        if (_settings.showDebugVisualization)
-        {
-            // Draw teleport path
-            Gizmos.color = Color.cyan;
-            Vector3 startPos = _playerTransform.position + Vector3.up * 1f;
-            Vector3 endPos = _targetPosition;
-            Vector3 midPoint = (startPos + endPos) * 0.5f + Vector3.up * 1f;
+            // Draw hit point
+            Gizmos.color = Color.green;
+            Gizmos.DrawWireSphere(_hitPoint, 0.2f);
             
-            for (int i = 0; i < 20; i++)
-            {
-                float t1 = i / 20f;
-                float t2 = (i + 1) / 20f;
-                
-                Vector3 p1 = QuadraticBezier(startPos, midPoint, endPos, t1);
-                Vector3 p2 = QuadraticBezier(startPos, midPoint, endPos, t2);
-                
-                Gizmos.DrawLine(p1, p2);
-            }
+            // Draw target position
+            Gizmos.color = _isLedgeTarget ? 
+                new Color(1f, 0.6f, 0.2f, 0.8f) : // Orange for ledges
+                new Color(0.2f, 0.6f, 1f, 0.8f);  // Blue for ground
+            Gizmos.DrawWireSphere(_targetPosition, 0.3f);
+            
+            // Draw surface normal
+            Gizmos.color = Color.blue;
+            Gizmos.DrawRay(_hitPoint, _surfaceNormal * 1f);
+            
+            // Draw line to target
+            Gizmos.color = Color.yellow;
+            Gizmos.DrawLine(_playerTransform.position, _targetPosition);
+            
+            #if UNITY_EDITOR
+            // Draw teleport info
+            float distance = Vector3.Distance(_playerTransform.position, _targetPosition);
+            UnityEditor.Handles.color = Color.white;
+            UnityEditor.Handles.Label(
+                (_playerTransform.position + _targetPosition) * 0.5f,
+                $"Distance: {distance:F1}m\n" +
+                $"Height Δ: {(_targetPosition.y - _playerTransform.position.y):F1}m\n" +
+                $"Type: {(_isLedgeTarget ? "Ledge" : "Ground")}"
+            );
+            #endif
         }
     }
-    
-    /// <summary>
-    /// Calculate a point on a quadratic bezier curve
-    /// </summary>
-    private Vector3 QuadraticBezier(Vector3 p0, Vector3 p1, Vector3 p2, float t)
-    {
-        float u = 1 - t;
-        float tt = t * t;
-        float uu = u * u;
-        return (uu * p0) + (2 * u * t * p1) + (tt * p2);
-    }
-    #endif
     #endregion
 }
