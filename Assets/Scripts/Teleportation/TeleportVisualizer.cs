@@ -59,18 +59,18 @@ public class TeleportVisualizer : MonoBehaviour
         }
         
         // Setup trajectory renderer
-        if (trajectoryRenderer == null && _settings.showTrajectory)
-        {
-            GameObject trajectoryObj = new GameObject("TeleportTrajectory");
-            trajectoryObj.transform.SetParent(transform);
+        // if (trajectoryRenderer == null && _settings.showTrajectory)
+        // {
+        //     GameObject trajectoryObj = new GameObject("TeleportTrajectory");
+        //     trajectoryObj.transform.SetParent(transform);
             
-            trajectoryRenderer = trajectoryObj.AddComponent<LineRenderer>();
-            trajectoryRenderer.startWidth = 0.05f;
-            trajectoryRenderer.endWidth = 0.05f;
-            trajectoryRenderer.positionCount = 0;
+        //     trajectoryRenderer = trajectoryObj.AddComponent<LineRenderer>();
+        //     trajectoryRenderer.startWidth = 0.05f;
+        //     trajectoryRenderer.endWidth = 0.05f;
+        //     trajectoryRenderer.positionCount = 0;
             
-            trajectoryRenderer.gameObject.SetActive(false);
-        }
+        //     trajectoryRenderer.gameObject.SetActive(false);
+        // }
         
         // Initialize arc points array
         _arcPoints = new Vector3[_settings.arcResolution];

@@ -26,6 +26,12 @@ MonoBehaviour:
   maxCharges: 3
   chargeCooldownDuration: 3
   regenerateDuringTeleport: 1
+  strictCameraRayOnly: 1
+  targetAssistanceStrength: 0.5
+  floatWhenLookingUp: 1
+  allowDistanceLimitedTargets: 1
+  useProximityAssist: 0
+  proximityAssistAngle: 10
   markerPositionOffset: {x: 0, y: 0, z: 0}
   markerMovementSpeed: 89.5
   showTrajectory: 1
@@ -39,8 +45,6 @@ MonoBehaviour:
   momentumRetentionPercentage: 0.4
   teleportationSnapFactor: 1.2
   enableLedgeClimbing: 1
-  floatWhenLookingUp: 1
-  verticalAngleThreshold: -22.5
   showDebugVisualization: 1
   enableDebugLogging: 1
   audioSettings:

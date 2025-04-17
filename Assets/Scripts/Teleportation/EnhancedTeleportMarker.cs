@@ -9,18 +9,7 @@ using UnityEngine;
 public class EnhancedTeleportMarker : MonoBehaviour
 {
     #region Fields
-    [Header("General Settings")]
-    [SerializeField] private float rotationSpeed = 50f;
-    [SerializeField] private Vector3 rotationAxis = Vector3.up;
-    [SerializeField] private bool randomizeRotationDirection = true;
     
-    
-    [Header("Color Effect")]
-    [SerializeField] private bool enableColorPulse = true;
-    [SerializeField] private Color baseColor = Color.cyan;
-    [SerializeField] private Color pulseColor = Color.white;
-    [SerializeField] private float colorPulseSpeed = 1.5f;
-    [SerializeField] private AnimationCurve colorCurve;
     
     [Header("Rings Effect")]
     [SerializeField] private bool enableRings = true;
@@ -71,21 +60,6 @@ public class EnhancedTeleportMarker : MonoBehaviour
         _propBlock = new MaterialPropertyBlock();
         _particleSystem = GetComponentInChildren<ParticleSystem>();
         _audioSource = GetComponent<AudioSource>();
-        
-        // Set random rotation direction if enabled
-        if (randomizeRotationDirection && Random.value > 0.5f)
-        {
-            _rotationDirection = -1f;
-        }
-        
-        if (colorCurve == null || colorCurve.keys.Length == 0)
-        {
-            colorCurve = new AnimationCurve(
-                new Keyframe(0f, 0f),
-                new Keyframe(0.5f, 1f),
-                new Keyframe(1f, 0f)
-            );
-        }
     }
     
     private void OnEnable()
@@ -117,47 +91,12 @@ public class EnhancedTeleportMarker : MonoBehaviour
     
     private void Update()
     {
-        // Apply various effects
-        if (enableColorPulse) ApplyColorEffect();
         if (enableRings) UpdateRingEffects();
-        
-        // Always apply rotation
-        ApplyRotation();
+
     }
     #endregion
     
     #region Visual Effects
-
-    
-    /// <summary>
-    /// Apply color pulsing effect using material property block
-    /// </summary>
-    private void ApplyColorEffect()
-    {
-        if (_renderer == null) return;
-        
-        float time = (Time.unscaledTime - _initialTime) * colorPulseSpeed % 1f;
-        float colorValue = colorCurve.Evaluate(time);
-        
-        // Get current property values
-        _renderer.GetPropertyBlock(_propBlock);
-        
-        // Set color
-        Color lerpedColor = Color.Lerp(baseColor, pulseColor, colorValue);
-        _propBlock.SetColor("_EmissionColor", lerpedColor * 2f); // Boost emission intensity
-        _propBlock.SetColor("_Color", lerpedColor);
-        
-        // Apply modified properties
-        _renderer.SetPropertyBlock(_propBlock);
-    }
-    
-    /// <summary>
-    /// Apply rotation effect
-    /// </summary>
-    private void ApplyRotation()
-    {
-        transform.Rotate(rotationAxis, rotationSpeed * _rotationDirection * Time.unscaledDeltaTime);
-    }
     
     /// <summary>
     /// Update ring expansion effects
@@ -243,14 +182,6 @@ public class EnhancedTeleportMarker : MonoBehaviour
     #endregion
     
     #region Public Methods
-    /// <summary>
-    /// Set the marker color
-    /// </summary>
-    public void SetColors(Color main, Color pulse)
-    {
-        baseColor = main;
-        pulseColor = pulse;
-    }
     
     /// <summary>
     /// Play a sound effect (if audio source is available)

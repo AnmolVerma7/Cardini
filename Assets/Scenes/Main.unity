@@ -4786,8 +4786,8 @@ MonoBehaviour:
   teleportMarkerPrefab: {fileID: 2282349614949194675, guid: 0a7ed17c81e5122409ecd02f86c651d8, type: 3}
   trajectoryRenderer: {fileID: 0}
   validMaterial: {fileID: 0}
-  ledgeMaterial: {fileID: 2100000, guid: 2488c713b7f593e49baec8e13895489f, type: 2}
-  invalidMaterial: {fileID: 2100000, guid: 53b75620277fed149b47a893da8f8367, type: 2}
+  ledgeMaterial: {fileID: 0}
+  invalidMaterial: {fileID: 0}
 --- !u!114 &931522453
 MonoBehaviour:
   m_ObjectHideFlags: 0

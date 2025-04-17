@@ -66,7 +66,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: 2488c713b7f593e49baec8e13895489f, type: 2}
+  - {fileID: 0}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -125,35 +125,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   rotationSpeed: 50
   rotationAxis: {x: 0, y: 1, z: 0}
-  randomizeRotationDirection: 1
-  enableColorPulse: 1
-  baseColor: {r: 0, g: 1, b: 1, a: 1}
-  pulseColor: {r: 1, g: 1, b: 1, a: 1}
-  colorPulseSpeed: 1.5
-  colorCurve:
-    serializedVersion: 2
-    m_Curve:
-    - serializedVersion: 3
-      time: 0
-      value: 0
-      inSlope: 2
-      outSlope: 2
-      tangentMode: 0
-      weightedMode: 0
-      inWeight: 0
-      outWeight: 0
-    - serializedVersion: 3
-      time: 1
-      value: 1
-      inSlope: 0
-      outSlope: 0
-      tangentMode: 0
-      weightedMode: 0
-      inWeight: 0
-      outWeight: 0
-    m_PreInfinity: 2
-    m_PostInfinity: 2
-    m_RotationOrder: 4
+  randomizeRotationDirection: 0
   enableRings: 0
   ringPrefab: {fileID: 0}
   maxRings: 3

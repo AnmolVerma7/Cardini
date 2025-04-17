@@ -4,7 +4,7 @@ using UnityEngine;
 
 /// <summary>
 /// Improved detector for teleportation targets with robust handling of various surface types
-/// and edge cases in a third-person setup.
+/// and edge cases in a third-person setup. Can be set to strict camera ray mode for precise targeting.
 /// </summary>
 public class TeleportTargetDetector : MonoBehaviour
 {
@@ -138,21 +138,55 @@ public class TeleportTargetDetector : MonoBehaviour
     {
         ResetDetectionState();
         
-        // First try direct camera ray detection (most common case)
-        if (TryDirectRayDetection())
-            return true;
-        
-        // If looking up significantly, try vertical detection for higher platforms
-        float verticalAngle = GetCameraVerticalAngle();
-        if (verticalAngle < _settings.verticalAngleThreshold && _settings.floatWhenLookingUp)
+        // In strict mode, only use direct camera ray detection
+        if (_settings.strictCameraRayOnly)
         {
-            if (TryVerticalDetection())
-                return true;
+            // Optionally use proximity assist if enabled
+            if (_settings.useProximityAssist && _settings.proximityAssistAngle > 0)
+            {
+                return TryProximityAssistedRayDetection();
+            }
+            else
+            {
+                return TryDirectRayDetection(0);
+            }
         }
         
-        // Last chance: try distance-limited detection (for cases where target is too far)
-        if (TryDistanceLimitedDetection())
+        // Standard detection with full assistance features
+        
+        // First try direct camera ray detection (most common case)
+        if (TryDirectRayDetection(0))
             return true;
+        
+        // Scale additional detection methods based on assistance strength
+        float assistStrength = _settings.targetAssistanceStrength;
+        if (assistStrength <= 0)
+            return false;
+            
+        // Get camera angle and determine if we're looking up
+        float verticalAngle = GetCameraVerticalAngle();
+        bool isLookingUp = verticalAngle < 0; // Negative angle means looking up
+        
+        // Try vertical detection if enabled and we're looking up
+        if (isLookingUp && _settings.floatWhenLookingUp && assistStrength > 0.2f)
+        {
+            // Minimum angle threshold scales with assistance strength (lower = more sensitive)
+            float upAngleThreshold = Mathf.Lerp(20f, 5f, assistStrength);
+            float upIntensity = Mathf.Abs(verticalAngle) / 90f; // 0 to 1 scale
+            
+            if (upIntensity * 90f > upAngleThreshold)
+            {
+                if (TryVerticalDetection())
+                    return true;
+            }
+        }
+        
+        // Try distance-limited detection if enabled
+        if (_settings.allowDistanceLimitedTargets && assistStrength > 0.3f)
+        {
+            if (TryDistanceLimitedDetection())
+                return true;
+        }
         
         return false;
     }
@@ -160,10 +194,19 @@ public class TeleportTargetDetector : MonoBehaviour
     /// <summary>
     /// Try to detect a target by casting a ray directly from the camera
     /// </summary>
-    private bool TryDirectRayDetection()
+    private bool TryDirectRayDetection(float angleOffset = 0)
     {
+        // Get ray direction (optionally with offset)
+        Vector3 rayDirection = _cameraTransform.forward;
+        if (angleOffset != 0)
+        {
+            // Apply small angle offset for proximity assist
+            Vector3 right = _cameraTransform.right;
+            rayDirection = Quaternion.AngleAxis(angleOffset, Vector3.up) * rayDirection;
+        }
+        
         // Cast ray from camera
-        Ray cameraRay = new Ray(_cameraTransform.position, _cameraTransform.forward);
+        Ray cameraRay = new Ray(_cameraTransform.position, rayDirection);
         if (!Physics.Raycast(cameraRay, out RaycastHit hit, 
                           _settings.maxTeleportationDistance * 1.5f, 
                           _settings.teleportableSurfaces | _settings.teleportationBlockers))
@@ -209,6 +252,34 @@ public class TeleportTargetDetector : MonoBehaviour
         {
             return ProcessGroundTarget(hit);
         }
+    }
+    
+    /// <summary>
+    /// Try proximity-assisted detection that checks small angle offsets to help with targeting
+    /// </summary>
+    private bool TryProximityAssistedRayDetection()
+    {
+        // First try direct ray with no offset
+        if (TryDirectRayDetection(0))
+            return true;
+            
+        // Proximity assist system - cast rays with small angle offsets to help with targeting
+        float maxAngle = _settings.proximityAssistAngle;
+        
+        // Try small offsets in different directions
+        float[] angles = { 2f, 5f, 8f, -2f, -5f, -8f };
+        
+        foreach (float angle in angles)
+        {
+            // Skip if beyond max allowed angle
+            if (Mathf.Abs(angle) > maxAngle)
+                continue;
+                
+            if (TryDirectRayDetection(angle))
+                return true;
+        }
+        
+        return false;
     }
     
     /// <summary>
@@ -265,11 +336,22 @@ public class TeleportTargetDetector : MonoBehaviour
     /// </summary>
     private bool TryVerticalDetection()
     {
+        // Get camera vertical angle to determine intensity
+        float verticalAngle = GetCameraVerticalAngle();
+        float upIntensity = Mathf.Clamp01(Mathf.Abs(verticalAngle) / 90f);
+        
         // Project camera forward onto horizontal plane
         Vector3 flatForward = Vector3.ProjectOnPlane(_cameraTransform.forward, Vector3.up).normalized;
         
-        // Calculate far look point
-        Vector3 farLookPoint = _playerTransform.position + flatForward * _settings.maxTeleportationDistance;
+        // Calculate far look point - adjust distance based on how far up we're looking
+        // Looking steeper up = closer distance to prevent unrealistic far teleports
+        float adjustedDistance = Mathf.Lerp(
+            _settings.maxTeleportationDistance,
+            _settings.maxTeleportationDistance * 0.7f,
+            upIntensity
+        );
+        
+        Vector3 farLookPoint = _playerTransform.position + flatForward * adjustedDistance;
         
         // Cast ray down from above to find ground
         if (Physics.Raycast(farLookPoint + Vector3.up * 50f, Vector3.down, out RaycastHit hit, 
@@ -283,7 +365,9 @@ public class TeleportTargetDetector : MonoBehaviour
             _isLedgeTarget = IsLedgeAngle(surfaceAngle);
             
             // Skip if platform is below player (we're looking up)
-            if (hit.point.y < _playerTransform.position.y + 0.5f)
+            // Use a height threshold that scales with how much we're looking up
+            float minHeightGain = Mathf.Lerp(0.5f, 1.5f, upIntensity);
+            if (hit.point.y < _playerTransform.position.y + minHeightGain)
                 return false;
             
             // Process based on surface type
@@ -736,6 +820,11 @@ public class TeleportTargetDetector : MonoBehaviour
             Gizmos.color = Color.yellow;
             Gizmos.DrawLine(_playerTransform.position, _targetPosition);
             
+            // Draw camera ray
+            Gizmos.color = Color.red;
+            Gizmos.DrawRay(_cameraTransform.position, _cameraTransform.forward * 
+                        Vector3.Distance(_cameraTransform.position, _hitPoint));
+            
             #if UNITY_EDITOR
             // Draw teleport info
             float distance = Vector3.Distance(_playerTransform.position, _targetPosition);
@@ -747,6 +836,13 @@ public class TeleportTargetDetector : MonoBehaviour
                 $"Type: {(_isLedgeTarget ? "Ledge" : "Ground")}"
             );
             #endif
+        }
+        else
+        {
+            // Draw camera ray even when no target found
+            Gizmos.color = Color.gray;
+            Gizmos.DrawRay(_cameraTransform.position, _cameraTransform.forward * 
+                        _settings.maxTeleportationDistance);
         }
     }
     #endregion

@@ -154,6 +154,31 @@ public class TeleportationSettings : ScriptableObject
 
     #endregion
 
+    #region Target Assistance
+
+    [Header("Target Assistance")]
+    [Tooltip("When enabled, only targets exactly where the camera is pointing will be detected")]
+    public bool strictCameraRayOnly = true;
+    
+    [Tooltip("Level of targeting assistance (0 = none, 1 = maximum)")]
+    [Range(0f, 1f)]
+    public float targetAssistanceStrength = 0.5f;
+    
+    [Tooltip("Whether to allow finding targets when looking up")]
+    public bool floatWhenLookingUp = false;
+    
+    [Tooltip("Whether to allow detecting targets beyond max distance")]
+    public bool allowDistanceLimitedTargets = true;
+    
+    [Tooltip("Whether to automatically adjust raycast to find the closest valid target when aiming near one")]
+    public bool useProximityAssist = false;
+    
+    [Tooltip("Maximum angle deviation in degrees for proximity assistance")]
+    [Range(0f, 30f)]
+    public float proximityAssistAngle = 10f;
+
+    #endregion
+
     #region Marker and Trajectory Settings
 
     [Header("Marker Settings")]
@@ -214,13 +239,6 @@ public class TeleportationSettings : ScriptableObject
 
     [Tooltip("Whether to allow climbing to ledges")]
     public bool enableLedgeClimbing = true;
-
-    [Tooltip("Whether to allow floating when looking up")]
-    public bool floatWhenLookingUp = false;
-
-    [Range(-50f, 90f)] 
-    [Tooltip("Vertical angle threshold for floating up detection")]
-    public float verticalAngleThreshold = -22.5f;
 
     #endregion
 
