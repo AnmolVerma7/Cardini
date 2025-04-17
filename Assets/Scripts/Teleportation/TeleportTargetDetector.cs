@@ -22,6 +22,14 @@ public class TeleportTargetDetector : MonoBehaviour
     private bool _isLedgeTarget;
     private bool _hasValidTarget;
     
+    // Smoothing variables for transitions
+    private Vector3 _prevTargetPosition;
+    private Vector3 _prevSurfaceNormal;
+    private bool _prevIsLedgeTarget;
+    private bool _prevHasValidTarget;
+    private float _targetLerpTime;
+    private const float TARGET_TRANSITION_TIME = 0.15f; // Time to smooth transitions (in seconds)
+    
     // Player dimensions
     private const float PLAYER_HEIGHT = 2.0f;
     private const float PLAYER_RADIUS = 0.4f;
@@ -117,16 +125,78 @@ public class TeleportTargetDetector : MonoBehaviour
     /// </summary>
     public void UpdateTarget()
     {
-        _hasValidTarget = DetectTarget();
+        // Store previous values for smooth transitions
+        _prevTargetPosition = _hasValidTarget ? _targetPosition : Vector3.zero;
+        _prevSurfaceNormal = _surfaceNormal;
+        _prevIsLedgeTarget = _isLedgeTarget;
+        _prevHasValidTarget = _hasValidTarget;
         
-        if (_hasValidTarget)
+        // Detect new target
+        bool newHasValidTarget = DetectTarget();
+        
+        // Only smooth transitions when target type changes or we gain/lose a target
+        if ((_prevHasValidTarget != newHasValidTarget) || 
+            (_prevIsLedgeTarget != _isLedgeTarget && _prevHasValidTarget && newHasValidTarget))
         {
+            _targetLerpTime = 0;
+        }
+        
+        // Handle smoothing between different target types
+        if (newHasValidTarget)
+        {
+            // Smooth transition between ledge and ground targets
+            SmoothTargetTransition();
             OnTargetFound?.Invoke(_targetPosition, _isLedgeTarget, _surfaceNormal);
         }
         else
         {
+            _hasValidTarget = false;
             OnNoTargetFound?.Invoke();
         }
+        
+        // Advance transition timer
+        if (_targetLerpTime < TARGET_TRANSITION_TIME)
+        {
+            _targetLerpTime += Time.deltaTime;
+        }
+    }
+    #endregion
+    
+    #region Target Smoothing
+    /// <summary>
+    /// Smoothly transition between different target positions and types
+    /// </summary>
+    private void SmoothTargetTransition()
+    {
+        // Only smooth if we had a valid target before and still have one
+        if (!_prevHasValidTarget || _targetLerpTime >= TARGET_TRANSITION_TIME)
+        {
+            _hasValidTarget = true;
+            return; // No need to smooth
+        }
+        
+        // Calculate smooth transition progress
+        float t = Mathf.SmoothStep(0, 1, _targetLerpTime / TARGET_TRANSITION_TIME);
+        
+        // Special case: When switching between ledge and ground or vice versa
+        if (_prevIsLedgeTarget != _isLedgeTarget)
+        {
+            // Interpolate the target position
+            _targetPosition = Vector3.Lerp(_prevTargetPosition, _targetPosition, t);
+            
+            // Interpolate the surface normal
+            _surfaceNormal = Vector3.Slerp(_prevSurfaceNormal, _surfaceNormal, t);
+            
+            // Keep the target type of the new detection
+            // This ensures consistent behavior while smoothing the visual transition
+        }
+        else
+        {
+            // Small position smoothing for same target type
+            _targetPosition = Vector3.Lerp(_prevTargetPosition, _targetPosition, t * 0.8f + 0.2f);
+        }
+        
+        _hasValidTarget = true;
     }
     #endregion
     
@@ -243,15 +313,8 @@ public class TeleportTargetDetector : MonoBehaviour
             return false;
         }
         
-        // Process based on surface type
-        if (_isLedgeTarget && _settings.enableLedgeClimbing)
-        {
-            return ProcessLedgeTarget(hit);
-        }
-        else
-        {
-            return ProcessGroundTarget(hit);
-        }
+        // Unified target processing for smoother transitions
+        return ProcessTarget(hit);
     }
     
     /// <summary>
@@ -266,17 +329,60 @@ public class TeleportTargetDetector : MonoBehaviour
         // Proximity assist system - cast rays with small angle offsets to help with targeting
         float maxAngle = _settings.proximityAssistAngle;
         
-        // Try small offsets in different directions
-        float[] angles = { 2f, 5f, 8f, -2f, -5f, -8f };
+        // Try small offsets in different directions - both horizontal and vertical
+        float[] verticalAngles = { 0f, 2f, -2f, 4f, -4f, 6f, -6f };
+        float[] horizontalAngles = { 0f, 2f, -2f, 4f, -4f, 6f, -6f };
         
-        foreach (float angle in angles)
+        foreach (float vAngle in verticalAngles)
         {
-            // Skip if beyond max allowed angle
-            if (Mathf.Abs(angle) > maxAngle)
-                continue;
+            foreach (float hAngle in horizontalAngles)
+            {
+                // Skip if either angle is beyond max allowed
+                if (Mathf.Abs(vAngle) > maxAngle || Mathf.Abs(hAngle) > maxAngle)
+                    continue;
                 
-            if (TryDirectRayDetection(angle))
-                return true;
+                // Skip center point (0,0) as we already tried it
+                if (vAngle == 0 && hAngle == 0)
+                    continue;
+                    
+                // Create rotated direction
+                Vector3 direction = _cameraTransform.forward;
+                if (hAngle != 0)
+                    direction = Quaternion.AngleAxis(hAngle, Vector3.up) * direction;
+                if (vAngle != 0)
+                    direction = Quaternion.AngleAxis(vAngle, _cameraTransform.right) * direction;
+                
+                // Cast ray with this direction
+                Ray assistRay = new Ray(_cameraTransform.position, direction);
+                if (Physics.Raycast(assistRay, out RaycastHit hit, 
+                                _settings.maxTeleportationDistance * 1.5f, 
+                                _settings.teleportableSurfaces | _settings.teleportationBlockers))
+                {
+                    // Check if hit is valid
+                    if (!IsInLayerMask(hit.collider.gameObject.layer, _settings.teleportationBlockers))
+                    {
+                        _hitPoint = hit.point;
+                        _surfaceNormal = hit.normal;
+                        
+                        // Check if this is a ledge
+                        float surfaceAngle = Vector3.Angle(hit.normal, Vector3.up);
+                        _isLedgeTarget = IsLedgeAngle(surfaceAngle);
+                        
+                        // Check distance
+                        float distanceToTarget = Vector3.Distance(_playerTransform.position, hit.point);
+                        if (distanceToTarget >= _settings.minTeleportationDistance && 
+                            distanceToTarget <= _settings.maxTeleportationDistance)
+                        {
+                            // Check if we're looking at ceiling/bottom surface
+                            if (!(Vector3.Dot(hit.normal, Vector3.up) < -0.7f && !_settings.allowBottomSurfaceTargeting))
+                            {
+                                // Process this target
+                                return ProcessTarget(hit);
+                            }
+                        }
+                    }
+                }
+            }
         }
         
         return false;
@@ -317,15 +423,8 @@ public class TeleportTargetDetector : MonoBehaviour
             float surfaceAngle = Vector3.Angle(groundHit.normal, Vector3.up);
             _isLedgeTarget = IsLedgeAngle(surfaceAngle);
             
-            // Process based on surface type
-            if (_isLedgeTarget && _settings.enableLedgeClimbing)
-            {
-                return ProcessLedgeTarget(groundHit);
-            }
-            else
-            {
-                return ProcessGroundTarget(groundHit);
-            }
+            // Process the target
+            return ProcessTarget(groundHit);
         }
         
         return false;
@@ -370,26 +469,17 @@ public class TeleportTargetDetector : MonoBehaviour
             if (hit.point.y < _playerTransform.position.y + minHeightGain)
                 return false;
             
-            // Process based on surface type
-            if (_isLedgeTarget && _settings.enableLedgeClimbing)
-            {
-                return ProcessLedgeTarget(hit);
-            }
-            else
-            {
-                return ProcessGroundTarget(hit);
-            }
+            // Process the target
+            return ProcessTarget(hit);
         }
         
         return false;
     }
-    #endregion
     
-    #region Target Processing
     /// <summary>
-    /// Process a ground (horizontal) surface target
+    /// Unified target processing to handle both ground and ledge targets consistently
     /// </summary>
-    private bool ProcessGroundTarget(RaycastHit hit)
+    private bool ProcessTarget(RaycastHit hit)
     {
         // Check if target is behind player
         if (IsPositionBehindPlayer(hit.point))
@@ -397,11 +487,38 @@ public class TeleportTargetDetector : MonoBehaviour
             return false;
         }
         
-        // Calculate teleport position with height offset
-        Vector3 teleportPos = hit.point + Vector3.up * _settings.groundedHeightOffset;
+        // Get final target position based on target type
+        Vector3 targetPos;
         
-        // Check if we can see the target
-        if (_settings.requireDirectLineOfSight && !IsTargetVisible(teleportPos))
+        if (_isLedgeTarget && _settings.enableLedgeClimbing)
+        {
+            // Process ledge target
+            Vector3 ledgeTopPosition = FindLedgeTop(hit);
+            if (ledgeTopPosition == Vector3.zero)
+            {
+                return false;
+            }
+            
+            // Calculate wall normal
+            Vector3 wallNormal = GetHorizontalNormal(hit.normal);
+            
+            // Use ledge height offset
+            targetPos = ledgeTopPosition + Vector3.up * _settings.ledgeHeightOffset;
+            
+            // Apply wall offset
+            float wallOffset = 0.4f;
+            targetPos -= wallNormal * wallOffset;
+        }
+        else
+        {
+            // Process ground target
+            targetPos = hit.point + Vector3.up * _settings.groundedHeightOffset;
+        }
+        
+        // Unified checks for both target types
+        
+        // Line of sight check
+        if (_settings.requireDirectLineOfSight && !IsTargetVisible(targetPos))
         {
             return false;
         }
@@ -412,73 +529,20 @@ public class TeleportTargetDetector : MonoBehaviour
             return false;
         }
         
-        // Check for clearance at target position
-        if (!HasPlayerClearance(teleportPos))
+        // Check for clearance
+        if (!HasPlayerClearance(targetPos))
         {
             return false;
         }
         
-        // Check for clear path to target
-        if (IsPathBlocked(_playerTransform.position, teleportPos))
-        {
-            return false;
-        }
-        
-        // Set final target position
-        _targetPosition = teleportPos;
-        
-        return true;
-    }
-    
-    /// <summary>
-    /// Process a ledge (vertical) surface target
-    /// </summary>
-    private bool ProcessLedgeTarget(RaycastHit hit)
-    {
-        // Find the top of the ledge
-        Vector3 ledgeTopPosition = FindLedgeTop(hit);
-        if (ledgeTopPosition == Vector3.zero)
-        {
-            return false;
-        }
-        
-        // Check if target is behind player
-        if (IsPositionBehindPlayer(ledgeTopPosition))
-        {
-            return false;
-        }
-        
-        // Calculate height difference for dynamic offset
-        float heightDiff = ledgeTopPosition.y - _playerTransform.position.y;
-        
-        // Calculate teleport position with appropriate offset
-        Vector3 wallNormal = GetHorizontalNormal(hit.normal);
-        Vector3 teleportPos = ledgeTopPosition + Vector3.up * _settings.ledgeHeightOffset;
-        
-        // Offset from wall based on surface angle
-        float wallOffset = 0.4f; // Base offset from wall
-        teleportPos -= wallNormal * wallOffset;
-        
-        // Check for clearance at target position
-        if (!HasPlayerClearance(teleportPos))
-        {
-            return false;
-        }
-        
-        // Check if we can see the target
-        if (_settings.requireDirectLineOfSight && !IsTargetVisible(teleportPos))
-        {
-            return false;
-        }
-        
-        // Check for clear path to target
-        if (IsPathBlocked(_playerTransform.position, teleportPos))
+        // Check for clear path
+        if (IsPathBlocked(_playerTransform.position, targetPos))
         {
             return false;
         }
         
         // Set final target position
-        _targetPosition = teleportPos;
+        _targetPosition = targetPos;
         
         return true;
     }
@@ -670,7 +734,7 @@ public class TeleportTargetDetector : MonoBehaviour
     /// </summary>
     private void ResetDetectionState()
     {
-        _hasValidTarget = false;
+        // Don't reset _hasValidTarget here - that's handled by DetectTarget and SmoothTargetTransition
         _isLedgeTarget = false;
         _hitPoint = Vector3.zero;
         _surfaceNormal = Vector3.up;
