@@ -117,14 +117,12 @@ namespace Cardini.Motion // Added namespace
         /// Updates the coyote time counter based on grounded state changes.
         /// </summary>
         /// <returns>The updated coyote time counter.</returns>
-        public static float UpdateCoyoteTime(float coyoteTimeCounter, float coyoteTime, bool wasGrounded, bool isGrounded)
+        public static float UpdateCoyoteTime(float coyoteTimeCounter, float coyoteTime, bool wasGrounded, bool isGrounded, bool didJumpThisTick)
         {
-            // If just left ground, start timer
-            if (wasGrounded && !isGrounded) { return coyoteTime; }
-            // If on ground, reset timer
-            else if (isGrounded) { return coyoteTime; }
-            // If in air, count down timer
-            else { return Mathf.Max(0f, coyoteTimeCounter - Time.deltaTime); }
+            if (didJumpThisTick) { return 0f; } // No coyote time if we just jumped
+            if (wasGrounded && !isGrounded) { return coyoteTime; } // Start timer when leaving ground
+            if (isGrounded) { return coyoteTime; } // Reset timer when grounded
+            else { return Mathf.Max(0f, coyoteTimeCounter - Time.deltaTime); } // Count down in air
         }
 
         /// <summary>

@@ -77,15 +77,28 @@ namespace Cardini.Motion
         public bool WasGrounded { get; private set; }
         public bool IsOnSlope { get; private set; }
         public RaycastHit SlopeHit { get; private set; }
-        public string currentMovementState { get; private set; } = "idle";
-        public CharacterState CurrentState { get; private set; } = CharacterState.Locomotion;
+
+        // MODIFIED: currentMovementState changed from string to CharacterMovementState enum
+        // public string currentMovementState { get; private set; } = "idle"; // OLD
+        public CharacterMovementState CurrentMovementState { get; private set; } = CharacterMovementState.Idle; // NEW
+
+        // MODIFIED: Renamed 'CurrentState' to 'CurrentMajorState' for clarity (as discussed)
+        // public CharacterState CurrentState { get; private set; } = CharacterState.Locomotion; // OLD
+        public CharacterState CurrentMajorState { get; private set; } = CharacterState.Locomotion; // NEW
+
         public bool ForceCrouchStateOnNextBaseLocoActivation { get; set; }
         private Vector3 velocityForDisplay;
-        // Derived State Helpers
-        public bool IsWallRunning => activeMovementModule is WallRunModule; // Check module type directly
-        public bool IsSliding => activeMovementModule is SlideModule;
-        public bool IsCrouching => (activeMovementModule is BaseLocomotionModule baseLoco && baseLoco.IsCurrentlyCrouching); // Use the new public property
-        public bool IsSprinting => (activeMovementModule is BaseLocomotionModule baseLocoSprint && baseLocoSprint.IsCurrentlySprinting());
+
+        // MODIFIED: Derived State Helpers now check CurrentMovementState enum
+        public bool IsWallRunning => CurrentMovementState == CharacterMovementState.WallRunning || CurrentMovementState == CharacterMovementState.StickyMovement; // Or just StickyMovement later
+        public bool IsSliding => CurrentMovementState == CharacterMovementState.Sliding;
+        public bool IsCrouching => CurrentMovementState == CharacterMovementState.Crouching;
+        public bool IsSprinting => CurrentMovementState == CharacterMovementState.Sprinting; 
+        public bool IsJumping => CurrentMovementState == CharacterMovementState.Jumping;
+        public bool IsFalling => CurrentMovementState == CharacterMovementState.Falling;
+
+
+        public bool IsPlayerModelOrientationExternallyManaged { get; set; } = false;
         #endregion
 
         #region Unity Lifecycle
@@ -100,7 +113,7 @@ namespace Cardini.Motion
             InitializeOverlays();     // Find and initialize Overlay Modules
 
             ForceCrouchStateOnNextBaseLocoActivation = false;
-            CurrentState = CharacterState.Locomotion; // Start in standard locomotion
+            CurrentMajorState = CharacterState.Locomotion; // Start in standard locomotion
         }
 
         void Start()
@@ -118,31 +131,28 @@ namespace Cardini.Motion
 
         void Update()
         {
-            bool log = ShowDebugLogs; // Cache log flag for this frame's scope
+            bool log = ShowDebugLogs;
 
-            // --- Primary State Logic ---
-            if (CurrentState == CharacterState.Locomotion)
+            // MODIFIED: Use the new property name for the major state check
+            if (CurrentMajorState == CharacterState.Locomotion)
             {
-                UpdateWorldState();          // Check grounded, slope, etc.
-                TickMovementModules(log);    // Update all module internal logic/timers
-                DetermineActiveMovementModule(log); // Decide which module should be active
+                UpdateWorldState();
+                TickMovementModules(log);
+                DetermineActiveMovementModule(log);
             }
             else { /* Logic for Combat, Interaction, Cutscene states */ }
 
-            // --- Overlay Management ---
-            ManageOverlayModules(log); // Handle concurrent overlays
-
-            // --- UI Update ---
-            UpdateUI(); // Update debug displays
+            ManageOverlayModules(log);
+            UpdateUI();
         }
 
         void FixedUpdate()
         {
             // Apply physics based on the active module and state
-            if (CurrentState == CharacterState.Locomotion && activeMovementModule != null)
+            if (CurrentMajorState == CharacterState.Locomotion && activeMovementModule != null)
             {
-                activeMovementModule.FixedTick(); // Let the active module apply forces
-                if (enforceSpeedLimits) { EnforceSpeedLimits(); } // Clamp speed if needed
+                activeMovementModule.FixedTick();
+                if (enforceSpeedLimits) { EnforceSpeedLimits(); }
             }
             else
             {
@@ -296,8 +306,29 @@ namespace Cardini.Motion
 
                 if (activeMovementModule != null) activeMovementModule.Deactivate();
                 activeMovementModule = moduleToSet;
-                if (activeMovementModule != null) activeMovementModule.Activate();
-                else currentMovementState = IsGrounded ? "idle" : "air"; // Fallback if ends up null
+
+                if (activeMovementModule != null)
+                {
+                    activeMovementModule.Activate();
+                    // The active module's Activate() method is now responsible for calling
+                    // controller.SetMovementState(CharacterMovementState.SomeState);
+                }
+                else
+                {
+                    // MODIFIED: Fallback if no module becomes active
+                    // This replaces `currentMovementState = IsGrounded ? "idle" : "air";`
+                    SetMovementState(IsGrounded ? CharacterMovementState.Idle : CharacterMovementState.Falling);
+                }
+            }
+            else if (activeMovementModule != null && CurrentMovementState == CharacterMovementState.None)
+            {
+                // This case might indicate an issue in the module's Activate() if it's not setting a state.
+                // For now, we can try to infer from BaseLocomotion if it's the active one.
+                if (activeMovementModule is BaseLocomotionModule)
+                {
+                     SetMovementState(IsGrounded ? CharacterMovementState.Idle : CharacterMovementState.Falling); // Default for BaseLoco
+                     if(log) Debug.LogWarning($"<color=orange>Cardini.Determine:</color> Active module {activeMovementModule.GetType().Name} did not set a MovementState on Activate. Defaulting.");
+                }
             }
         }
 
@@ -317,17 +348,47 @@ namespace Cardini.Motion
         #endregion
 
         #region Public Methods
-        public void SetMovementState(string state)
-        { if (currentMovementState != state) { currentMovementState = state; } }
-
+         public void SetMovementState(CharacterMovementState newState)
+        {
+            if (CurrentMovementState != newState)
+            {
+                if (ShowDebugLogs)
+                {
+                    Debug.Log($"<color=blue>Cardini.SetMovementState:</color> Frame {Time.frameCount} | {CurrentMovementState} -> {newState}");
+                }
+                CurrentMovementState = newState;
+            }
+        }
         public void RequestMovementModuleDeactivation(MovementModule module)
-        { if (activeMovementModule == module) { bool log = ShowDebugLogs; if(log) Debug.Log($"<color=cyan>CardiniController:</color> Frame {Time.frameCount} | Module {module?.GetType().Name ?? "NULL"} requested deactivation."); activeMovementModule.Deactivate(); activeMovementModule = null; } else if (ShowDebugLogs) { Debug.LogWarning($"CardiniController: Module {module?.GetType().Name ?? "NULL"} requested deactivation but was not active (Current: {activeMovementModule?.GetType().Name ?? "None"})."); } }
+        { 
+            if (activeMovementModule == module)
+            {
+                bool log = ShowDebugLogs;
+                if (log) Debug.Log($"<color=cyan>CardiniController:</color> Module {module?.GetType().Name ?? "NULL"} requested deactivation.");
+                activeMovementModule.Deactivate();
+                activeMovementModule = null;
+                // After a module deactivates, DetermineActiveMovementModule in the next Update
+                // should pick the new highest priority module (likely BaseLocomotion).
+                // If BaseLocomotion activates, its Activate() method will set the new MovementState.
+                // If no module activates, DetermineActiveMovementModule will set a fallback state.
+            }
+            else if (ShowDebugLogs)
+            {
+                Debug.LogWarning($"CardiniController: Module {module?.GetType().Name ?? "NULL"} requested deactivation but was not active (Current: {activeMovementModule?.GetType().Name ?? "None"}).");
+            } 
+        }
 
         public void RequestOverlayAction(OverlayModule requester, string actionType, object data = null, object data2 = null)
         { bool log = ShowDebugLogs; if (log) Debug.Log($"<color=yellow>Cardini Action Request:</color> Frame {Time.frameCount} | Overlay {requester?.GetType().Name ?? "NULL"} -> Action: {actionType}"); switch (actionType) { case "Teleport": HandleTeleportAction(requester, data, data2); break; case "StartDash": if (log) Debug.Log($"<color=yellow>Dash Action:</color> Received (Needs specific implementation)"); break; default: Debug.LogWarning($"CardiniController: Unhandled overlay action type: {actionType}"); break; } }
 
-        public void SetState(CharacterState newState)
-        { if (CurrentState == newState) return; bool log = ShowDebugLogs; if (log) Debug.Log($"<color=magenta>Cardini State Machine:</color> Frame {Time.frameCount} | State Change Request: {CurrentState} -> {newState}"); /* Add Exit/Entry Logic */ CurrentState = newState; }
+        public void SetMajorState(CharacterState newMajorState) // Was SetState
+        {
+            if (CurrentMajorState == newMajorState) return; // Use CurrentMajorState
+            bool log = ShowDebugLogs;
+            if (log) Debug.Log($"<color=magenta>Cardini Major State Machine:</color> Frame {Time.frameCount} | State Change Request: {CurrentMajorState} -> {newMajorState}"); // Use CurrentMajorState
+            /* Add Exit/Entry Logic for Major States if needed */
+            CurrentMajorState = newMajorState; // Use CurrentMajorState
+        }
         #endregion
 
         #region Action Handlers
@@ -364,8 +425,21 @@ namespace Cardini.Motion
         #endregion
 
         #region UI Update
-        private void UpdateUI() // Use StringBuilder for minor GC optimization if needed later
-        { if (text_speed != null) { Vector3 v = velocityForDisplay; Vector3 flat = new Vector3(v.x,0,v.z); text_speed.SetText($"Speed: {(IsOnSlope ? v.magnitude : flat.magnitude):F1}"); } if (text_mode != null) { text_mode.SetText($"Mode: {currentMovementState}"); } if (text_overlays != null) { string names = activeOverlayModules.Any() ? string.Join(", ", activeOverlayModules.Select(o=>(o?.GetType().Name ?? "Null"))) : "None"; text_overlays.SetText($"Overlays: {names}");} }
+        private void UpdateUI()
+        {
+            // Speed text remains the same
+            if (text_speed != null) { Vector3 v = velocityForDisplay; Vector3 flat = new Vector3(v.x,0,v.z); text_speed.SetText($"Speed: {(IsOnSlope ? v.magnitude : flat.magnitude):F1}"); }
+
+            // MODIFIED: Mode text now displays the CharacterMovementState enum
+            if (text_mode != null)
+            {
+                // text_mode.SetText($"Mode: {currentMovementState}"); // OLD
+                text_mode.SetText($"Mode: {CurrentMovementState.ToString()}"); // NEW
+            }
+
+            // Overlays text remains the same
+            if (text_overlays != null) { string names = activeOverlayModules.Any() ? string.Join(", ", activeOverlayModules.Select(o=>(o?.GetType().Name ?? "Null"))) : "None"; text_overlays.SetText($"Overlays: {names}");}
+        }
         #endregion
     }
 }

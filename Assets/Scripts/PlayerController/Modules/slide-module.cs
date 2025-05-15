@@ -24,6 +24,7 @@ public class SlideModule : MovementModule
     #endregion
 
     #region State
+    private BaseLocomotionModule _baseLocoModule;
     private float slideTimer;
     private float slideCooldownTimer;
     #endregion
@@ -34,6 +35,8 @@ public class SlideModule : MovementModule
     {
         base.Initialize(controller);
         slideCooldownTimer = 0f;
+        _baseLocoModule = controller.GetComponent<BaseLocomotionModule>();
+        if (_baseLocoModule == null) Debug.LogError($"{GetType().Name}: Could not find BaseLocomotionModule on the Controller!", this);
         if (showDebugLogs) Debug.Log("<color=orange>Slide:</color> Module initialized");
     }
 
@@ -44,7 +47,7 @@ public class SlideModule : MovementModule
 
         if (controller.Rb != null) controller.Rb.AddForce(Vector3.down * 5f, ForceMode.Impulse);
         slideTimer = maxSlideTime;
-        controller.SetMovementState("sliding");
+        controller.SetMovementState(CharacterMovementState.Sliding);
         slideCooldownTimer = slideCooldown;
 
         var animator = controller.PlayerObj?.GetComponentInChildren<Animator>();
@@ -72,41 +75,63 @@ public class SlideModule : MovementModule
 
     public override bool WantsToActivate()
     {
-        bool onCooldown = slideCooldownTimer > 0;
-        bool wants = controller.Input.CrouchPressed &&
-                     controller.Input.SprintHeld &&
-                     controller.IsGrounded &&
-                     !controller.IsSliding &&
-                     !onCooldown;
+        if (controller == null || controller.Input == null || _baseLocoModule == null) return false;
 
-        if (showDebugLogs && controller.Input.CrouchPressed)
-            Debug.Log($"<color=orange>Slide.Wants Check:</color> Frame {Time.frameCount} | CrouchPressed={controller.Input.CrouchPressed}, SprintHeld={controller.Input.SprintHeld}, Grounded={controller.IsGrounded}, NotSliding={!controller.IsSliding}, OnCooldown={onCooldown} >> Wants={wants}");
+        bool onCooldown = slideCooldownTimer > 0f;
+        if (onCooldown) return false;
 
+        bool grounded = controller.IsGrounded;
+        bool currentlySliding = controller.IsSliding;
+        bool crouchPressedThisFrame = controller.Input.CrouchPressed;
+
+        // --- CRITICAL CHANGE: Check actual sprinting STATE from BaseLoco ---
+        bool isCurrentlySprintingState = _baseLocoModule.IsCurrentlySprinting();
+        // --------------------------------------------------------------
+
+        // Activation requires: Crouch PRESSED THIS FRAME + ACTUAL Sprinting State + Grounded + Not Already Sliding
+        bool wants = crouchPressedThisFrame &&
+                    isCurrentlySprintingState && // Player must BE in the sprinting ACTION state
+                    grounded &&
+                    !currentlySliding;
+
+        // Optional Logging
+        //if (showDebugLogs && crouchPressedThisFrame)
+        //    Debug.Log($"<color=orange>Slide.Wants Check:</color> Wants={wants} (IsSprintingState={isCurrentlySprintingState}, Grounded={grounded}, Sliding={currentlySliding})");
         return wants;
     }
 
     public override void Tick()
     {
-        if (slideCooldownTimer > 0) { slideCooldownTimer -= Time.deltaTime; }
+        if (slideCooldownTimer > 0f) { slideCooldownTimer -= Time.deltaTime; }
 
         if (controller.activeMovementModule == this)
         {
-            if (slideTimer > 0) { slideTimer -= Time.deltaTime; }
-            bool slideTimeUp = slideTimer <= 0;
-            bool crouchReleased = controller.Input.CrouchReleased;
+            if (slideTimer > 0f) { slideTimer -= Time.deltaTime; }
+            bool slideTimeUp = slideTimer <= 0f;
+            // bool crouchReleased = controller.Input.CrouchReleased; // We use shouldReleaseStop now
             bool fellOffGround = !controller.IsGrounded;
 
-            if (slideTimeUp || crouchReleased || fellOffGround)
-            {
-                bool shouldTransitionToCrouch = slideTimeUp && !crouchReleased && controller.Input.CrouchHeld && !fellOffGround;
-                controller.ForceCrouchStateOnNextBaseLocoActivation = shouldTransitionToCrouch;
+            // Check toggle setting via BaseLocoModule's public property
+            // Ensure _baseLocoModule is not null (it should be cached in Initialize)
+            bool isToggleCrouchActive = _baseLocoModule != null && _baseLocoModule.UseToggleCrouch;
+            // Determine if slide should stop based on release (only relevant if NOT using toggle crouch)
+            bool shouldReleaseStop = !isToggleCrouchActive && controller.Input.CrouchReleased;
 
-                if (showDebugLogs)
+            if (slideTimeUp || shouldReleaseStop || fellOffGround)
+            {
+                // Force crouch state on exit only if slide timer ended while grounded.
+                // BaseLoco will handle whether the player *stays* crouched based on its own logic.
+                bool shouldForceCrouchOnExit = slideTimeUp && !fellOffGround;
+                controller.ForceCrouchStateOnNextBaseLocoActivation = shouldForceCrouchOnExit;
+
+                // Using controller.ShowDebugLogs if you want consistent debug control
+                if (controller.ShowDebugLogs) // Or keep your local 'showDebugLogs' if preferred
                 {
-                    if (shouldTransitionToCrouch) Debug.Log($"<color=orange>Slide.Tick:</color> Frame {Time.frameCount} | Timer ended, Crouch Held. Requesting transition to crouch.");
-                    else if (slideTimeUp) Debug.Log($"<color=orange>Slide.Tick:</color> Frame {Time.frameCount} | Timer ended, Crouch NOT Held. Requesting normal deactivation.");
-                    else if (crouchReleased) Debug.Log($"<color=orange>Slide.Tick:</color> Frame {Time.frameCount} | Crouch Released. Requesting normal deactivation.");
-                    else if (fellOffGround) Debug.Log($"<color=orange>Slide.Tick:</color> Frame {Time.frameCount} | Fell off ground. Requesting normal deactivation.");
+                    string reason = "Unknown";
+                    if (slideTimeUp) reason = shouldForceCrouchOnExit ? "Timer (to crouch)" : "Timer (to stand)";
+                    else if (shouldReleaseStop) reason = "Crouch Released";
+                    else if (fellOffGround) reason = "Fell Off Ground";
+                    Debug.Log($"<color=orange>Slide.Tick:</color> Stopping slide ({reason}). ForceCrouchOnExit={shouldForceCrouchOnExit}");
                 }
                 controller.RequestMovementModuleDeactivation(this);
             }

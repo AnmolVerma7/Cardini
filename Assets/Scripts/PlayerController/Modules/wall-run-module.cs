@@ -72,7 +72,8 @@ public class WallRunModule : MovementModule
         exitingWall = false;
         exitWallTimer = 0f;
 
-        controller.SetMovementState("wallrunning");
+        // Fix: Properly set the movement state using controller.SetMovementState
+        controller.SetMovementState(CharacterMovementState.WallRunning);
 
         if (cachedAnimator != null)
         {
