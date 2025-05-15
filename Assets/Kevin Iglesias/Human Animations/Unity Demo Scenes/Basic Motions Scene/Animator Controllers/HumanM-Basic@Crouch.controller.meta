@@ -1,0 +1,16 @@
+fileFormatVersion: 2
+guid: 3a33dc914f0a54948a618b132ff31a02
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 9100000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 157744
+  packageName: Basic Motions
+  packageVersion: 2.3.4
+  assetPath: Assets/Kevin Iglesias/Human Animations/Unity Demo Scenes/Basic Motions
+    Scene/Animator Controllers/HumanM-Basic@Crouch.controller
+  uploadId: 750868
