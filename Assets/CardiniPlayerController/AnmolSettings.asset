@@ -1,0 +1,42 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 857adee13e33e7846a1b2eced8a0c340, type: 3}
+  m_Name: AnmolSettings
+  m_EditorClassIdentifier: 
+  DefaultCapsuleHeight: 2
+  CrouchedCapsuleHeight: 1
+  UseToggleSprint: 1
+  UseToggleCrouch: 0
+  WalkThreshold: 0.01
+  JogThreshold: 0.5
+  MaxWalkSpeed: 5
+  MaxJogSpeed: 7
+  MaxSprintSpeed: 12
+  MaxCrouchSpeed: 3
+  StableMovementSharpness: 15
+  OrientationSharpness: 10
+  OrientationMethod: 1
+  BonusOrientation: 0
+  MaxAirMoveSpeed: 9
+  AirAccelerationSpeed: 15
+  Drag: 0
+  AllowJumpingWhenSliding: 1
+  JumpUpSpeed_IdleWalk: 7
+  JumpUpSpeed_Jog: 9
+  JumpUpSpeed_Sprint: 12
+  JumpScalableForwardSpeed_IdleWalk: 0
+  JumpScalableForwardSpeed_Jog: 0
+  JumpScalableForwardSpeed_Sprint: 0
+  JumpPreGroundingGraceTime: 0.15
+  JumpPostGroundingGraceTime: 0.2
+  BonusOrientationSharpness: 10
+  Gravity: {x: 0, y: -30, z: 0}
