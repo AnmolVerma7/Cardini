@@ -1,4 +1,3 @@
-// CardiniController.cs
 using UnityEngine;
 using KinematicCharacterController;
 using System.Collections.Generic;

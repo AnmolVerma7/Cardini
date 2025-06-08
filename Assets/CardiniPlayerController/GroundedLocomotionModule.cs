@@ -62,16 +62,17 @@ namespace Cardini.Motion
         {
             if (Settings == null) return;
 
-            // --- Determine Target Ground Speed based on State ---
-            float inputMagnitude = Controller._moveInputVector.magnitude; // Use processed move input from Controller
+            // Use processed move input from Controller
+            float inputMagnitude = Controller._moveInputVector.magnitude; 
             UpdateGroundedSubState(inputMagnitude); // Update current sub-state (Idle, Walk, Jog, etc.)
 
             float currentDesiredMaxSpeed;
-            if (IsCrouching) // Read Controller's _isCrouching
+            // Determine speed based on the module's sub-state, which was just updated
+            if (_currentGroundedSubState == CharacterMovementState.Crouching)
             {
                 currentDesiredMaxSpeed = Settings.MaxCrouchSpeed;
             }
-            else if (IsSprinting) // Read Controller's _isSprinting
+            else if (_currentGroundedSubState == CharacterMovementState.Sprinting)
             {
                 currentDesiredMaxSpeed = Settings.MaxSprintSpeed;
             }
@@ -88,34 +89,42 @@ namespace Cardini.Motion
                 currentDesiredMaxSpeed = 0f;
             }
             
-            // --- Ground Movement Logic (from CardiniController) ---
+            // --- Ground Movement Logic ---
             float currentVelocityMagnitude = currentVelocity.magnitude;
             Vector3 effectiveGroundNormal = Motor.GroundingStatus.GroundNormal;
             currentVelocity = Motor.GetDirectionTangentToSurface(currentVelocity, effectiveGroundNormal) * currentVelocityMagnitude;
 
-            Vector3 reorientedInput = Controller._moveInputVector;
-            if (Controller._moveInputVector.sqrMagnitude > 0f)
-            {
-                Vector3 inputRight = Vector3.Cross(Controller._moveInputVector, Motor.CharacterUp);
-                reorientedInput = Vector3.Cross(effectiveGroundNormal, inputRight).normalized * inputMagnitude;
-            }
+            // Get the PURE DIRECTION of input from the controller
+            Vector3 inputDirection = Controller._moveInputVector.normalized; 
 
-            Vector3 targetMovementVelocity = reorientedInput * currentDesiredMaxSpeed;
+            // Reorient the desired input direction onto the ground plane
+            Vector3 reorientedInputDirection = inputDirection; 
+            if (Controller._moveInputVector.sqrMagnitude > 0.01f) 
+            {
+                Vector3 inputRight = Vector3.Cross(inputDirection, Motor.CharacterUp);
+                reorientedInputDirection = Vector3.Cross(effectiveGroundNormal, inputRight).normalized;
+            }
+            else // No significant input, reoriented direction should also be zero to prevent drift
+            {
+                reorientedInputDirection = Vector3.zero;
+            }
+            
+            // Target velocity is now the full desired speed IN THE PURE, REORIENTED DIRECTION.
+            // This creates the speed plateaus.
+            Vector3 targetMovementVelocity = reorientedInputDirection * currentDesiredMaxSpeed;
+            
+            // If _currentGroundedSubState is Idle, currentDesiredMaxSpeed is 0, so targetMovementVelocity is zero.
+            // The Lerp will then smoothly bring currentVelocity to zero.
+
             currentVelocity = Vector3.Lerp(currentVelocity, targetMovementVelocity, 1f - Mathf.Exp(-Settings.StableMovementSharpness * deltaTime));
 
             // --- Handle Jump Initiation ---
-            // This module detects if a jump *should* happen from ground/coyote.
-            // It then tells the Controller, which will handle the state transition to Airborne.
-            if (Controller.IsJumpRequested()) // Check jump request via Controller
+            if (Controller.IsJumpRequested())
             {
-                // Grounded module now ONLY checks for actual ground jumps
                 bool canGroundJump = (Settings.AllowJumpingWhenSliding ? Motor.GroundingStatus.FoundAnyGround : Motor.GroundingStatus.IsStableOnGround);
-
-                if (!Controller.IsJumpConsumed() && canGroundJump) // Only ground jump condition
+                if (!Controller.IsJumpConsumed() && canGroundJump)
                 {
-                    // Determine jump speeds based on current ground state
-                    float jumpSpeedTierForThisJump = Controller._currentSpeedTierForJump;
-
+                    float jumpSpeedTierForThisJump = Controller._currentSpeedTierForJump; 
                     float actualJumpUpSpeed = Settings.JumpUpSpeed_IdleWalk;
                     float actualJumpForwardSpeed = Settings.JumpScalableForwardSpeed_IdleWalk;
 
@@ -129,7 +138,7 @@ namespace Cardini.Motion
                         actualJumpUpSpeed = Settings.JumpUpSpeed_Jog;
                         actualJumpForwardSpeed = Settings.JumpScalableForwardSpeed_Jog;
                     }
-
+                    
                     Controller.ExecuteJump(actualJumpUpSpeed, actualJumpForwardSpeed, Controller._moveInputVector);
                 }
             }
