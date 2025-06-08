@@ -1,4 +1,3 @@
-
 using UnityEngine;
 using KinematicCharacterController;
 using System.Collections.Generic;
@@ -438,6 +437,9 @@ namespace Cardini.Motion
             _currentMovementState = newMoveState;
             // Debug.Log($"Movement State changed to: {newMoveState}");
         }
+
+        // Public property to expose current movement state
+        public CharacterMovementState CurrentMovementState => _currentMovementState;
 
         // ... (Rest of ICharacterController methods: PostGroundingUpdate, IsColliderValidForCollisions, etc. as before) ...
         // ... Ensure they don't have dependencies on KCC.Examples enums ...

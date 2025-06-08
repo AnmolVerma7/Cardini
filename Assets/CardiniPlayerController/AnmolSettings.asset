@@ -27,16 +27,16 @@ MonoBehaviour:
   OrientationMethod: 1
   BonusOrientation: 0
   MaxAirMoveSpeed: 10
-  AirAccelerationSpeed: 3
-  Drag: 0.5
+  AirAccelerationSpeed: 75
+  Drag: 0
   AllowJumpingWhenSliding: 1
-  JumpUpSpeed_IdleWalk: 10
-  JumpUpSpeed_Jog: 10
-  JumpUpSpeed_Sprint: 12
+  JumpUpSpeed_IdleWalk: 5
+  JumpUpSpeed_Jog: 6
+  JumpUpSpeed_Sprint: 7
   JumpScalableForwardSpeed_IdleWalk: 0
   JumpScalableForwardSpeed_Jog: 0
   JumpScalableForwardSpeed_Sprint: 0
   JumpPreGroundingGraceTime: 0.15
   JumpPostGroundingGraceTime: 0.2
   BonusOrientationSharpness: 10
-  Gravity: {x: 0, y: -30, z: 0}
+  Gravity: {x: 0, y: -20, z: 0}
