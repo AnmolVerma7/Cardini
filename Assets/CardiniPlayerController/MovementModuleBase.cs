@@ -1,4 +1,4 @@
-// MovementModuleBase.cs (in Cardini.Motion namespace)
+// MovementModuleBase.cs
 using UnityEngine;
 using KinematicCharacterController;
 
@@ -6,37 +6,59 @@ namespace Cardini.Motion
 {
     public abstract class MovementModuleBase : MonoBehaviour
     {
+        // Properties to access core components, set during Initialize
         protected CardiniController Controller { get; private set; }
         protected KinematicCharacterMotor Motor { get; private set; }
         protected InputBridge InputBridge { get; private set; }
         protected BaseLocomotionSettingsSO Settings { get; private set; }
-        // Add IPlayerAnimator, EnvironmentScanner later
+        // We'll add IPlayerAnimator, EnvironmentScanner references here later
 
+        /// <summary>
+        /// Called by CardiniController to provide references to core components.
+        /// </summary>
         public virtual void Initialize(CardiniController controller)
         {
             Controller = controller;
-            Motor = controller.Motor; // Get from Controller
-            InputBridge = controller.inputBridge; // Get from Controller
-            Settings = controller.Settings; // Get from Controller
+            Motor = controller.Motor; 
+            InputBridge = controller.inputBridge; 
+            Settings = controller.Settings; 
         }
 
-        // Called by CardiniController to see if this module wants to take over
+        /// <summary>
+        /// Called by CardiniController to determine if this module can/should become active.
+        /// </summary>
         public abstract bool CanEnterState();
-        // Called by CardiniController when this module becomes active
+
+        /// <summary>
+        /// Called by CardiniController when this module is activated.
+        /// Use for one-time setup when entering the state.
+        /// </summary>
         public abstract void OnEnterState();
-        // Called by CardiniController when this module is deactivated
+
+        /// <summary>
+        /// Called by CardiniController when this module is deactivated.
+        /// Use for cleanup or final actions before exiting the state.
+        /// </summary>
         public abstract void OnExitState();
 
-        // KCC Interface methods to be implemented by concrete modules
+        // KCC Interface methods that CardiniController will delegate to the active module
         public abstract void UpdateRotation(ref Quaternion currentRotation, float deltaTime);
         public abstract void UpdateVelocity(ref Vector3 currentVelocity, float deltaTime);
         public abstract void AfterCharacterUpdate(float deltaTime);
         public abstract void PostGroundingUpdate(float deltaTime);
-        // public virtual void BeforeCharacterUpdate(float deltaTime) {} // Optional
+        
+        // Optional, if some modules need it. Can be empty in base.
+        public virtual void BeforeCharacterUpdate(float deltaTime) { } 
 
-        // What specific movement state this module represents
-        public abstract CharacterMovementState AssociatedMovementState { get; }
-        // Priority for activation if multiple modules CanEnterState
+        /// <summary>
+        /// The specific CharacterMovementState this module primarily represents.
+        /// Used by CardiniController to update its overall debug state.
+        /// </summary>
+        public abstract CharacterMovementState AssociatedPrimaryMovementState { get; }
+        
+        /// <summary>
+        /// Priority of this module. Higher numbers take precedence if multiple modules CanEnterState.
+        /// </summary>
         public virtual int Priority { get { return 0; } } 
     }
 }

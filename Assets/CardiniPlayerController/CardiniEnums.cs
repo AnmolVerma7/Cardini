@@ -5,7 +5,8 @@ namespace Cardini.Motion
 {
     public enum CharacterState
     {
-        Locomotion,    // Normal movement (walking, sliding, wallrunning, etc.)
+        Locomotion, // Normal movement (walking, sliding, wallrunning, etc.)
+        AbilitySelection,    
         Combat,        // Combat-specific state (attacking, blocking, etc.) - Placeholder
         Interaction,   // Interacting with objects, UI, NPCs, etc. - Placeholder
         Cutscene       // Player control suspended - Placeholder
@@ -29,8 +30,7 @@ namespace Cardini.Motion
         Sliding,
         WallRunning, // Or will be replaced by StickyMovement
         WallJumping,
-        StickyMovement,
-        Teleporting
+        Teleporting,
         // Add more specific parkour/action states as you develop them:
         // e.g., Mantling, Vaulting, LedgeGrabbing, etc.
     }

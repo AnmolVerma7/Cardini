@@ -1,6 +1,8 @@
+// CardiniController.cs
 using UnityEngine;
 using KinematicCharacterController;
 using System.Collections.Generic;
+using System.Linq; // For OrderByDescending
 
 namespace Cardini.Motion
 {
@@ -8,54 +10,81 @@ namespace Cardini.Motion
     {
         [Header("Core References")]
         public KinematicCharacterMotor Motor;
-        public InputBridge inputBridge; // Assumes InputBridge is also in Cardini.Motion or global
+        public InputBridge inputBridge;
         public BaseLocomotionSettingsSO Settings;
 
         [Header("Object References")]
-        public Transform MeshRoot;
+        public Transform MeshRoot; // Modules might need access for scaling etc.
         public Transform CameraFollowPoint;
 
         [Header("Collision Filtering")]
         public List<Collider> IgnoredColliders = new List<Collider>();
 
+        [Header("Movement Modules")] // Assign GroundedLocomotionModule (and Airborne later) here
+        public List<MovementModuleBase> movementModules = new List<MovementModuleBase>();
+        private MovementModuleBase _activeMovementModule;
+
+        // --- Publicly Readable States (for Modules, UI, etc.) ---
+        // These are now mostly managed by this controller, informed by inputs and module actions
         [Header("Runtime State (Debug)")]
-        [SerializeField] private CharacterState _currentMajorState = CharacterState.Locomotion; // High-level state
-        [SerializeField] private CharacterMovementState _currentMovementState = CharacterMovementState.Idle; // Detailed movement state
-        [SerializeField] private bool _isSprinting;
-        [SerializeField] private bool _isCrouching;
-        [SerializeField] private bool _shouldBeCrouching;
-        [SerializeField] private float _currentSpeedTierForJump;
-        [SerializeField] private float _lastGroundedSpeedTier;
-        [SerializeField] private Vector3 _lastMoveDirection;
+        [SerializeField] public CharacterState CurrentMajorState { get; private set; } = CharacterState.Locomotion;
+        [SerializeField] public CharacterMovementState CurrentMovementState { get; private set; } = CharacterMovementState.Idle;
+        
+        // These are derived from input and settings, readable by modules
+        public bool _isSprinting { get; private set; }
+        public bool _shouldBeCrouching { get; private set; } // Desired state from input + toggle logic
+        
+        // This is the authoritative PHYSICAL crouch state, set by modules (typically GroundedModule)
+        public bool _isCrouching { get; private set; } 
 
-        private Collider[] _probedColliders = new Collider[8];
-        private Vector3 _moveInputVector;
-        private Vector3 _lookInputVector;
-        private bool _jumpRequested = false;
-        private bool _jumpConsumed = false;
-        private bool _jumpedThisFrame = false;
-        private float _timeSinceJumpRequested = Mathf.Infinity;
-        private float _timeSinceLastAbleToJump = 0f;
-        private Vector3 _internalVelocityAdd = Vector3.zero;
+        public float _currentSpeedTierForJump { get; set; } // Modules can update this (Grounded primarily)
+        public float _lastGroundedSpeedTier { get; private set; } // Set when leaving ground
 
+        // Processed Inputs, readable by modules
+        public Vector3 _moveInputVector { get; private set; }
+        public Vector3 _lookInputVector { get; private set; }
+
+
+        // Jump related flags managed by Controller, influenced by modules
+        public bool _jumpRequested { get; private set; }
+        public bool _jumpConsumed { get; private set; }
+        private bool _jumpExecutionIntent = false;
+        public bool _jumpedThisFrame { get; private set; } // Set by AirborneModule during jump execution
+        public float _timeSinceJumpRequested { get; private set; } = Mathf.Infinity;
+        public float _timeSinceLastAbleToJump { get; set; } = 0f; // Modules (Airborne) update this
+
+        // Internal KCC variables
+        public Collider[] _probedColliders { get; private set; } = new Collider[8]; // Modules might need for CharacterOverlap
+        private Vector3 _internalVelocityAdd = Vector3.zero; // For AddVelocity calls
+
+        // Toggle states for sprint/crouch (managed by controller)
         private bool _sprintToggleActive = false;
         private bool _crouchToggleActive = false;
+
 
         private void Awake()
         {
             if (Motor == null) Motor = GetComponent<KinematicCharacterMotor>();
-            Motor.CharacterController = this;
+            Motor.CharacterController = this; // 'this' (CardiniController) IS the ICharacterController
 
             if (inputBridge == null) inputBridge = GetComponentInParent<InputBridge>() ?? GetComponent<InputBridge>();
             if (Settings == null) Debug.LogError("CardiniController: BaseLocomotionSettingsSO not assigned!", this);
             if (inputBridge == null) Debug.LogError("CardiniController: InputBridge not found/assigned!", this);
 
+            // Initialize all assigned movement modules
+            foreach (var module in movementModules)
+            {
+                if (module != null) module.Initialize(this);
+            }
+            // Sort modules by priority (higher priority first)
+            movementModules = movementModules.OrderByDescending(m => m.Priority).ToList();
+
 
             SetMajorState(CharacterState.Locomotion);
-            SetMovementState(CharacterMovementState.Idle);
+            // Initial movement state will be determined by module activation
         }
 
-        // --- Controller Inputs Struct ---
+        // Internal struct, used by CardiniPlayer
         public struct ControllerInputs
         {
             public Vector2 MoveAxes;
@@ -63,18 +92,20 @@ namespace Cardini.Motion
             public bool JumpPressed;
         }
 
-        public void SetControllerInputs(ref ControllerInputs inputs)
+        public void SetControllerInputs(ref ControllerInputs inputs) // Called by CardiniPlayer
         {
-            if (_currentMajorState != CharacterState.Locomotion)
+            // Process major state input (e.g., ability wheel) first
+            HandleMajorStateInputs(); // New method to handle ability wheel, etc.
+
+            if (CurrentMajorState != CharacterState.Locomotion)
             {
                 _moveInputVector = Vector3.zero;
-                _lookInputVector = Motor.CharacterForward; // Or maintain last look
+                _lookInputVector = Motor.CharacterForward;
                 _jumpRequested = false;
                 _isSprinting = false;
                 _shouldBeCrouching = false;
                 return;
             }
-
             if (Settings == null) return;
 
             Vector3 moveInputVectorRaw = Vector3.ClampMagnitude(new Vector3(inputs.MoveAxes.x, 0f, inputs.MoveAxes.y), 1f);
@@ -92,16 +123,14 @@ namespace Cardini.Motion
             }
             else if (Settings.OrientationMethod == CardiniOrientationMethod.TowardsMovement)
             {
-                if (_moveInputVector.sqrMagnitude > 0f)
-                {
-                    _lastMoveDirection = _moveInputVector.normalized;
-                    _lookInputVector = _lastMoveDirection;
-                }
-                else
-                {
-                    _lookInputVector = _lastMoveDirection;  // Keep facing the last movement direction
-                }
+                // Maintain last look direction if not moving, otherwise update
+                if (_moveInputVector.sqrMagnitude > 0.001f) 
+                    _lookInputVector = _moveInputVector.normalized;
+                else if (_lookInputVector.sqrMagnitude < 0.001f) // If look vector was also zero (e.g. at start)
+                    _lookInputVector = cameraPlanarDirection; // Default to camera direction
+                // else, _lookInputVector retains its previous value (last movement direction)
             }
+
 
             if (inputs.JumpPressed)
             {
@@ -129,353 +158,257 @@ namespace Cardini.Motion
                 _shouldBeCrouching = inputBridge.Crouch.IsHeld;
             }
         }
-
-        // --- ICharacterController Callbacks ---
-        // (UpdateRotation, UpdateVelocity, AfterCharacterUpdate, etc., remain largely the same
-        //  but will eventually be driven by the _currentMovementState)
-        public void UpdateRotation(ref Quaternion currentRotation, float deltaTime)
+        
+        private void HandleMajorStateInputs()
         {
-            if (Settings == null || _currentMajorState != CharacterState.Locomotion) return;
-
-            if (_lookInputVector.sqrMagnitude > 0f && Settings.OrientationSharpness > 0f)
+            if (inputBridge.AbilitySelect.IsHeld && CurrentMajorState != CharacterState.AbilitySelection)
             {
-                // Smoothly interpolate from current to target look direction
-                Vector3 smoothedLookInputDirection = Vector3.Slerp(Motor.CharacterForward, _lookInputVector, 1 - Mathf.Exp(-Settings.OrientationSharpness * deltaTime)).normalized;
-
-                // Set the current rotation (which will be used by the KinematicCharacterMotor)
-                currentRotation = Quaternion.LookRotation(smoothedLookInputDirection, Motor.CharacterUp);
+                SetMajorState(CharacterState.AbilitySelection);
+                Time.timeScale = 0.1f; // Example
+                // TODO: Show UI
             }
-
-            // Handle bonus rotation (e.g., aligning to ground slope)
-            if (Settings.BonusOrientation == CardiniBonusOrientationMethod.TowardsGravity)
+            else if (!inputBridge.AbilitySelect.IsHeld && CurrentMajorState == CharacterState.AbilitySelection)
             {
-                Vector3 targetUpDirection = -Settings.Gravity.normalized;
-                Vector3 currentUp = Motor.CharacterUp;
-                Quaternion rotationFromCurrentUp = Quaternion.FromToRotation(currentUp, targetUpDirection);
-                currentRotation = rotationFromCurrentUp * currentRotation;
-            }
-            else if (Settings.BonusOrientation == CardiniBonusOrientationMethod.TowardsGroundSlopeAndGravity)
-            {
-                if (Motor.GroundingStatus.IsStableOnGround)
-                {
-                    Vector3 targetUpDirection = Motor.GroundingStatus.GroundNormal;
-                    Vector3 currentUp = Motor.CharacterUp;
-                    Quaternion rotationFromCurrentUp = Quaternion.FromToRotation(currentUp, targetUpDirection);
-                    currentRotation = rotationFromCurrentUp * currentRotation;
-                }
-                else
-                {
-                    Vector3 targetUpDirection = -Settings.Gravity.normalized;
-                    Vector3 currentUp = Motor.CharacterUp;
-                    Quaternion rotationFromCurrentUp = Quaternion.FromToRotation(currentUp, targetUpDirection);
-                    currentRotation = rotationFromCurrentUp * currentRotation;
-                }
+                SetMajorState(CharacterState.Locomotion); // Or previous state
+                Time.timeScale = 1f;
+                // TODO: Hide UI, process selection
             }
         }
 
-        // Example: UpdateVelocity will start checking _currentMovementState
-        public void UpdateVelocity(ref Vector3 currentVelocity, float deltaTime)
+
+        private void ManageModuleTransitions()
         {
-            if (Settings == null || _currentMajorState != CharacterState.Locomotion)
+            if (CurrentMajorState != CharacterState.Locomotion && CurrentMajorState != CharacterState.Combat) // Only allow movement modules in these states for now
             {
-                // If not in locomotion, maybe apply gravity only or freeze
-                if (_currentMajorState != CharacterState.Locomotion && !Motor.GroundingStatus.IsStableOnGround)
+                if (_activeMovementModule != null)
                 {
-                    currentVelocity += Settings.Gravity * deltaTime; // Apply gravity if airborne
+                    _activeMovementModule.OnExitState();
+                    _activeMovementModule = null;
+                    SetMovementState(CharacterMovementState.None); // Or a specific "non-locomotion" state
                 }
                 return;
             }
 
-            // Determine target movement state based on inputs
-            UpdateMovementStateDetermination();
+            MovementModuleBase newActiveModule = null;
+            int highestPriority = -1;
 
-            float currentDesiredMaxSpeed;
-            float inputMagnitude = _moveInputVector.magnitude;
-
-            if (_isCrouching)
+            foreach (var module in movementModules)
             {
-                currentDesiredMaxSpeed = Settings.MaxCrouchSpeed;
-            }
-            else if (_isSprinting)
-            {
-                currentDesiredMaxSpeed = Settings.MaxSprintSpeed;
-            }
-            // Jog/Walk based on _currentMovementState, not directly on inputMagnitude here for speed setting
-            else if (_currentMovementState == CharacterMovementState.Jogging)
-            {
-                currentDesiredMaxSpeed = Settings.MaxJogSpeed;
-            }
-            else if (_currentMovementState == CharacterMovementState.Walking || _currentMovementState == CharacterMovementState.Idle)
-            {
-                currentDesiredMaxSpeed = (_currentMovementState == CharacterMovementState.Walking) ? Settings.MaxWalkSpeed : 0f;
-            }
-            else // Default or other states like Falling, Jumping
-            {
-                currentDesiredMaxSpeed = Settings.MaxWalkSpeed; // Fallback, or handle per state
-                if (_currentMovementState == CharacterMovementState.Falling || _currentMovementState == CharacterMovementState.Jumping)
+                if (module.CanEnterState()) // Module determines its own viability
                 {
-                    // Air speed is handled differently below
-                }
-                else if (_currentMovementState == CharacterMovementState.Idle)
-                {
-                    currentDesiredMaxSpeed = 0f;
+                    if (module.Priority > highestPriority)
+                    {
+                        newActiveModule = module;
+                        highestPriority = module.Priority;
+                    }
+                    // Basic conflict: if same priority, first one in list wins (can refine later)
+                    else if (module.Priority == highestPriority && newActiveModule == null) 
+                    {
+                        newActiveModule = module;
+                    }
                 }
             }
 
-
-            // --- Ground Movement ---
-            if (Motor.GroundingStatus.IsStableOnGround)
+            if (newActiveModule != _activeMovementModule)
             {
-                // If Idle, force speed to 0 unless specific idle movement is desired
-                if (_currentMovementState == CharacterMovementState.Idle)
+                if (_activeMovementModule != null)
                 {
-                    currentDesiredMaxSpeed = 0f;
+                    _activeMovementModule.OnExitState();
                 }
-
-                float currentVelocityMagnitude = currentVelocity.magnitude;
-                Vector3 effectiveGroundNormal = Motor.GroundingStatus.GroundNormal;
-                currentVelocity = Motor.GetDirectionTangentToSurface(currentVelocity, effectiveGroundNormal) * currentVelocityMagnitude;
-                Vector3 reorientedInput = _moveInputVector;
-                if (_moveInputVector.sqrMagnitude > 0f)
+                _activeMovementModule = newActiveModule;
+                if (_activeMovementModule != null)
                 {
-                    Vector3 inputRight = Vector3.Cross(_moveInputVector, Motor.CharacterUp);
-                    reorientedInput = Vector3.Cross(effectiveGroundNormal, inputRight).normalized * inputMagnitude;
+                    _activeMovementModule.OnEnterState();
                 }
-                Vector3 targetMovementVelocity = reorientedInput * currentDesiredMaxSpeed;
-                currentVelocity = Vector3.Lerp(currentVelocity, targetMovementVelocity, 1f - Mathf.Exp(-Settings.StableMovementSharpness * deltaTime));
             }
-            // --- Air Movement ---
+            
+            // Update the controller's overall movement state based on the active module
+            if (_activeMovementModule != null)
+            {
+                SetMovementState(_activeMovementModule.AssociatedPrimaryMovementState);
+            }
             else
             {
-                if (_moveInputVector.sqrMagnitude > 0f)
-                {
-                    Vector3 addedVelocity = _moveInputVector * Settings.AirAccelerationSpeed * deltaTime;
-                    Vector3 currentVelocityOnInputsPlane = Vector3.ProjectOnPlane(currentVelocity, Motor.CharacterUp);
-                    if (currentVelocityOnInputsPlane.magnitude < Settings.MaxAirMoveSpeed)
-                    {
-                        Vector3 newTotal = Vector3.ClampMagnitude(currentVelocityOnInputsPlane + addedVelocity, Settings.MaxAirMoveSpeed);
-                        addedVelocity = newTotal - currentVelocityOnInputsPlane;
-                    }
-                    else
-                    {
-                        if (Vector3.Dot(currentVelocityOnInputsPlane, addedVelocity) > 0f)
-                        {
-                            addedVelocity = Vector3.ProjectOnPlane(addedVelocity, currentVelocityOnInputsPlane.normalized);
-                        }
-                    }
-                    currentVelocity += addedVelocity;
-                }
-                currentVelocity += Settings.Gravity * deltaTime;
-                currentVelocity *= (1f / (1f + (Settings.Drag * deltaTime)));
+                SetMovementState(CharacterMovementState.None); // Or Idle if grounded, Falling if not
             }
+        }
 
-            // --- Jumping ---
-            _jumpedThisFrame = false;
-            _timeSinceJumpRequested += deltaTime;
-
-            if (_jumpRequested && _timeSinceJumpRequested > Settings.JumpPreGroundingGraceTime)
+        // --- Helper Methods for Modules ---
+        public void ExecuteJump(float jumpUpSpeed, float jumpForwardSpeed, Vector3 moveInputForJump)
+        {
+            Vector3 jumpDirection = Motor.CharacterUp;
+            // If jumping from an unstable slope, use ground normal for jump direction
+            if (Motor.GroundingStatus.FoundAnyGround && !Motor.GroundingStatus.IsStableOnGround) 
             {
-                _jumpRequested = false;
+                jumpDirection = Motor.GroundingStatus.GroundNormal;
             }
-            if (_jumpRequested)
+
+            Motor.ForceUnground();
+            _internalVelocityAdd += (jumpDirection * jumpUpSpeed) - Vector3.Project(Motor.BaseVelocity, Motor.CharacterUp);
+            _internalVelocityAdd += (moveInputForJump.normalized * jumpForwardSpeed);
+            
+            _jumpRequested = false; 
+            _jumpConsumed = true; 
+            // _jumpedThisFrame will be set by AirborneModule or a new method if we centralize it.
+            _jumpExecutionIntent = true; // Signal that a jump was just executed
+
+            // The state transition to AirborneModule will happen in ManageModuleTransitions
+            // due to Motor.ForceUnground() making IsStableOnGround false.
+        }
+
+        public bool ConsumeJumpExecutionIntent()
+        {
+            bool intent = _jumpExecutionIntent;
+            _jumpExecutionIntent = false; // Consume it
+            return intent;
+        }
+
+        public bool IsJumpRequested() => _jumpRequested;
+        public bool IsJumpConsumed() => _jumpConsumed;
+        public void ConsumeJumpRequest() { _jumpRequested = false; _timeSinceJumpRequested = Mathf.Infinity; }
+        public void SetJumpConsumed(bool consumed) => _jumpConsumed = consumed;
+        public void SetJumpedThisFrame(bool jumped) => _jumpedThisFrame = jumped; // Airborne module will call this
+        public void SetCrouchingState(bool isPhysicallyCrouching) => _isCrouching = isPhysicallyCrouching;
+        public void SetLastGroundedSpeedTier(float speedTier) => _lastGroundedSpeedTier = speedTier;
+
+        // Shared Rotation Logic (can be called by modules)
+        public void HandleStandardRotation(ref Quaternion currentRotation, float deltaTime)
+        {
+            if (Settings == null) return; // Should not happen if initialized
+
+            if (_lookInputVector.sqrMagnitude > 0f && Settings.OrientationSharpness > 0f)
             {
-                float actualJumpUpSpeed = Settings.JumpUpSpeed_IdleWalk;
-                float actualJumpForwardSpeed = Settings.JumpScalableForwardSpeed_IdleWalk;
+                Vector3 smoothedLookInputDirection = Vector3.Slerp(Motor.CharacterForward, _lookInputVector, 1 - Mathf.Exp(-Settings.OrientationSharpness * deltaTime)).normalized;
+                currentRotation = Quaternion.LookRotation(smoothedLookInputDirection, Motor.CharacterUp);
+            }
+            // Removed Bonus Orientation logic as per your request.
+            // Add simple reorient to world up if desired:
+            else if (Settings.OrientationSharpness > 0f) // If not actively looking, gently reorient to world up
+            {
+                 Vector3 currentUp = (currentRotation * Vector3.up);
+                 Vector3 smoothedUp = Vector3.Slerp(currentUp, Vector3.up, 1 - Mathf.Exp(-Settings.OrientationSharpness * deltaTime * 0.5f)); // Slower reorient
+                 currentRotation = Quaternion.FromToRotation(currentUp, smoothedUp) * currentRotation;
+            }
+        }
 
-                // Use _currentSpeedTierForJump which is now set based on movement state
-                if (_timeSinceLastAbleToJump <= Settings.JumpPostGroundingGraceTime && _timeSinceLastAbleToJump > 0) // Coyote Jump
-                {
-                    actualJumpUpSpeed = _lastGroundedSpeedTier >= Settings.MaxSprintSpeed * 0.9f ? 
-                    Settings.JumpUpSpeed_Sprint : _lastGroundedSpeedTier >= Settings.MaxJogSpeed * 0.9f ? 
-                    Settings.JumpUpSpeed_Jog : Settings.JumpUpSpeed_IdleWalk;
-                
-                    actualJumpForwardSpeed = _lastGroundedSpeedTier >= Settings.MaxSprintSpeed * 0.9f ? 
-                    Settings.JumpScalableForwardSpeed_Sprint : _lastGroundedSpeedTier >= Settings.MaxJogSpeed * 0.9f ? 
-                    Settings.JumpScalableForwardSpeed_Jog : Settings.JumpScalableForwardSpeed_IdleWalk;
-                }
-                else if (_currentSpeedTierForJump >= Settings.MaxSprintSpeed * 0.9f) // Check against sprint speed
-                {
-                    actualJumpUpSpeed = Settings.JumpUpSpeed_Sprint;
-                    actualJumpForwardSpeed = Settings.JumpScalableForwardSpeed_Sprint;
-                }
-                else if (_currentSpeedTierForJump >= Settings.MaxJogSpeed * 0.9f) // Check against jog speed
-                {
-                    actualJumpUpSpeed = Settings.JumpUpSpeed_Jog;
-                    actualJumpForwardSpeed = Settings.JumpScalableForwardSpeed_Jog;
-                }
-                // Default is IdleWalk, already set (covers idle and walk jumps)
+        // --- ICharacterController Implementation (Delegation to Active Module) ---
+        public void UpdateRotation(ref Quaternion currentRotation, float deltaTime)
+        {
+            if (_activeMovementModule != null && CurrentMajorState == CharacterState.Locomotion)
+            {
+                _activeMovementModule.UpdateRotation(ref currentRotation, deltaTime);
+            }
+            else 
+            {
+                HandleStandardRotation(ref currentRotation, deltaTime); // Fallback standard rotation
+            }
+        }
 
+        public void UpdateVelocity(ref Vector3 currentVelocity, float deltaTime)
+        {
+            // ManageModuleTransitions(); // Call this once per frame
 
-                if (!_jumpConsumed && ((Settings.AllowJumpingWhenSliding ? Motor.GroundingStatus.FoundAnyGround : Motor.GroundingStatus.IsStableOnGround) || _timeSinceLastAbleToJump <= Settings.JumpPostGroundingGraceTime))
+            if (_activeMovementModule != null && CurrentMajorState == CharacterState.Locomotion)
+            {
+                _activeMovementModule.UpdateVelocity(ref currentVelocity, deltaTime);
+            }
+            else // Handle non-locomotion states (e.g. just apply gravity if airborne)
+            {
+                if (!Motor.GroundingStatus.IsStableOnGround)
                 {
-                    Vector3 jumpDirection = Motor.CharacterUp;
-                    if (Motor.GroundingStatus.FoundAnyGround && !Motor.GroundingStatus.IsStableOnGround)
-                    {
-                        jumpDirection = Motor.GroundingStatus.GroundNormal;
-                    }
-                    Motor.ForceUnground();
-                    currentVelocity += (jumpDirection * actualJumpUpSpeed) - Vector3.Project(currentVelocity, Motor.CharacterUp);
-                    currentVelocity += (_moveInputVector.normalized * actualJumpForwardSpeed);
-                    _jumpRequested = false;
-                    _jumpConsumed = true;
-                    _jumpedThisFrame = true;
-                    SetMovementState(CharacterMovementState.Jumping); // Set jumping state
+                    if (Settings != null) currentVelocity += Settings.Gravity * deltaTime;
+                    else currentVelocity += Physics.gravity * deltaTime; // Absolute fallback
                 }
             }
-
+            
+            // Apply any internal velocity additions (like from jump execution)
             if (_internalVelocityAdd.sqrMagnitude > 0f)
             {
                 currentVelocity += _internalVelocityAdd;
                 _internalVelocityAdd = Vector3.zero;
             }
         }
-        
+
         public void AfterCharacterUpdate(float deltaTime)
         {
-            if (Settings == null || _currentMajorState != CharacterState.Locomotion) return;
+            if (Settings == null) return; // Safety first
 
-            if (Settings.AllowJumpingWhenSliding ? Motor.GroundingStatus.FoundAnyGround : Motor.GroundingStatus.IsStableOnGround)
-            {
-                if (!_jumpedThisFrame) // If we didn't just jump this frame...
-                {
-                    _jumpConsumed = false; // ... then reset the consumed flag, allowing another jump.
-                }
-                _timeSinceLastAbleToJump = 0f;
-            }
-            else
-            {
-                // Add this else block for tracking coyote time
-                _timeSinceLastAbleToJump += deltaTime;
-            }
+            // Reset one-frame jump execution flag (the one set by ExecuteJump)
+             _jumpedThisFrame = false; // This controller flag is reset each frame. AirborneModule sets its own internal one.
 
-            // Crouching capsule and mesh scaling
-            // _isCrouching is the actual physical state of the capsule
-            // _shouldBeCrouching is the desired state from input
-            // This logic handles transitions between them and obstacle checks
-            if (_isCrouching && !_shouldBeCrouching)
+
+            if (_activeMovementModule != null && CurrentMajorState == CharacterState.Locomotion)
             {
-                Motor.SetCapsuleDimensions(Motor.Capsule.radius, Settings.DefaultCapsuleHeight, Settings.DefaultCapsuleHeight * 0.5f);
-                if (Motor.CharacterOverlap(Motor.TransientPosition, Motor.TransientRotation, _probedColliders, Motor.CollidableLayers, QueryTriggerInteraction.Ignore) > 0)
-                {
-                    Motor.SetCapsuleDimensions(Motor.Capsule.radius, Settings.CrouchedCapsuleHeight, Settings.CrouchedCapsuleHeight * 0.5f);
-                }
-                else
-                {
-                    if (MeshRoot) MeshRoot.localScale = Vector3.one;
-                    _isCrouching = false;
-                    // Potentially transition out of Crouching movement state here if not already handled
-                    if (_currentMovementState == CharacterMovementState.Crouching) UpdateMovementStateDetermination();
-                }
+                _activeMovementModule.AfterCharacterUpdate(deltaTime);
             }
-            else if (!_isCrouching && _shouldBeCrouching)
+            
+            // This logic for jump request timeout is controller-level
+            if (_jumpRequested && _timeSinceJumpRequested > Settings.JumpPreGroundingGraceTime)
             {
-                _isCrouching = true;
-                Motor.SetCapsuleDimensions(Motor.Capsule.radius, Settings.CrouchedCapsuleHeight, Settings.CrouchedCapsuleHeight * 0.5f);
-                if (MeshRoot) MeshRoot.localScale = new Vector3(MeshRoot.localScale.x, Settings.CrouchedCapsuleHeight / Settings.DefaultCapsuleHeight, MeshRoot.localScale.z);
-                SetMovementState(CharacterMovementState.Crouching); // Set crouching state
+                _jumpRequested = false;
             }
 
-            // Update final movement state if grounded and not jumping/crouching
-            if (Motor.GroundingStatus.IsStableOnGround && _currentMovementState != CharacterMovementState.Jumping && _currentMovementState != CharacterMovementState.Crouching)
-            {
-                 UpdateMovementStateDetermination(); // Recalculate based on current speed/input after physics
-            }
-            else if (!Motor.GroundingStatus.IsStableOnGround && _currentMovementState != CharacterMovementState.Jumping)
-            {
-                SetMovementState(CharacterMovementState.Falling);
-            }
+            // Reset _timeSinceLastAbleToJump if we are now grounded (Module might have done this, but good to be sure)
+            // This is more accurately handled by the modules now based on their active state.
+            // The GroundedModule sets it to 0 in OnEnterState.
+            // The AirborneModule increments it in its AfterCharacterUpdate.
         }
 
-
-        // Method to determine and set the detailed movement state
-        private void UpdateMovementStateDetermination()
+        public void PostGroundingUpdate(float deltaTime)
         {
-            if (_currentMajorState != CharacterState.Locomotion) return;
-            if (!Motor.GroundingStatus.IsStableOnGround && _currentMovementState != CharacterMovementState.Jumping) { // If airborne and not already jumping
-                SetMovementState(CharacterMovementState.Falling);
-                return;
-            }
-            if (_isCrouching) { // Use the authoritative _isCrouching state
-                SetMovementState(CharacterMovementState.Crouching);
-                _currentSpeedTierForJump = Settings.MaxCrouchSpeed; // Update jump tier
-                return;
-            }
-            if (_isSprinting) {
-                SetMovementState(CharacterMovementState.Sprinting);
-                _currentSpeedTierForJump = Settings.MaxSprintSpeed;
-                return;
-            }
+            ManageModuleTransitions(); // Good place to check for transitions based on new ground state
 
-            float inputMag = _moveInputVector.magnitude;
-            if (inputMag > Settings.JogThreshold) {
-                SetMovementState(CharacterMovementState.Jogging);
-                _currentSpeedTierForJump = Settings.MaxJogSpeed;
-            } else if (inputMag > Settings.WalkThreshold) {
-                SetMovementState(CharacterMovementState.Walking);
-                _currentSpeedTierForJump = Settings.MaxWalkSpeed;
-            } else {
-                SetMovementState(CharacterMovementState.Idle);
-                _currentSpeedTierForJump = 0f; // Or Settings.MaxWalkSpeed for idle->jump
+            if (_activeMovementModule != null && CurrentMajorState == CharacterState.Locomotion)
+            {
+                _activeMovementModule.PostGroundingUpdate(deltaTime);
+            }
+             // This is where _timeSinceLastAbleToJump is reset if grounded by a module,
+             // or incremented if airborne by a module
+        }
+        
+        public void BeforeCharacterUpdate(float deltaTime) 
+        {
+            // Prime place to call ManageModuleTransitions once per KCC update cycle
+            _timeSinceJumpRequested += deltaTime; // Increment this early
+            ManageModuleTransitions();
+
+            if (_activeMovementModule != null && CurrentMajorState == CharacterState.Locomotion)
+            {
+                _activeMovementModule.BeforeCharacterUpdate(deltaTime);
             }
         }
 
 
-        // State Management (using our new enums)
+        // Pass-through or controller-level logic for other ICharacterController methods
+        public bool IsColliderValidForCollisions(Collider coll) => !IgnoredColliders.Contains(coll);
+        public void AddVelocity(Vector3 velocity) => _internalVelocityAdd += velocity; // Queues external velocity
+        public void OnGroundHit(Collider hitCollider, Vector3 hitNormal, Vector3 hitPoint, ref HitStabilityReport hitStabilityReport) { /* Delegate if module needs it */ }
+        public void OnMovementHit(Collider hitCollider, Vector3 hitNormal, Vector3 hitPoint, ref HitStabilityReport hitStabilityReport) { /* Delegate if module needs it */ }
+        public void ProcessHitStabilityReport(Collider hitCollider, Vector3 hitNormal, Vector3 hitPoint, Vector3 atCharacterPosition, Quaternion atCharacterRotation, ref HitStabilityReport hitStabilityReport) { /* Delegate if module needs it */ }
+        public void OnLandedInternal() 
+        { 
+            // Called by modules upon landing
+            SetJumpConsumed(false); // Allow new jump after landing
+            _timeSinceLastAbleToJump = 0f;
+            // Potentially: PlayerAnimator.TriggerLanded();
+        }
+
+        protected void OnLeaveStableGround() { _lastGroundedSpeedTier = _currentSpeedTierForJump; /* Called by AirborneModule when it takes over after ground */ }
+        public void OnDiscreteCollisionDetected(Collider hitCollider) { }
+
+        // State Management (using our new enums) - kept public for now
         public void SetMajorState(CharacterState newState)
         {
-            if (_currentMajorState == newState) return;
-            // Add OnExit/OnEnter logic for major states if needed
-            _currentMajorState = newState;
-            Debug.Log($"Major State changed to: {newState}");
+            if (CurrentMajorState == newState) return;
+            CurrentMajorState = newState;
+            // Debug.Log($"Major State changed to: {newState}");
         }
 
         public void SetMovementState(CharacterMovementState newMoveState)
         {
-            if (_currentMovementState == newMoveState) return;
-            // Add OnExit/OnEnter logic for movement states if needed for animations etc.
-            // For example: PlayerAnimator.SetMovementState(newMoveState);
-            _currentMovementState = newMoveState;
+            if (CurrentMovementState == newMoveState) return;
+            CurrentMovementState = newMoveState;
             // Debug.Log($"Movement State changed to: {newMoveState}");
         }
-
-        // Public property to expose current movement state
-        public CharacterMovementState CurrentMovementState => _currentMovementState;
-
-        // ... (Rest of ICharacterController methods: PostGroundingUpdate, IsColliderValidForCollisions, etc. as before) ...
-        // ... Ensure they don't have dependencies on KCC.Examples enums ...
-        public void PostGroundingUpdate(float deltaTime)
-        {
-            if (_currentMajorState != CharacterState.Locomotion) return;
-
-            if (Motor.GroundingStatus.IsStableOnGround && !Motor.LastGroundingStatus.IsStableOnGround) // Just Landed
-            {
-                OnLanded();
-                if (_currentMovementState == CharacterMovementState.Jumping || _currentMovementState == CharacterMovementState.Falling)
-                {
-                    UpdateMovementStateDetermination(); // This will set state to Idle/Walking/etc.
-                }
-            }
-            else if (!Motor.GroundingStatus.IsStableOnGround && Motor.LastGroundingStatus.IsStableOnGround)
-            {
-                OnLeaveStableGround();
-                // If not already jumping (e.g. walked off edge), transition to Falling
-                if (_currentMovementState != CharacterMovementState.Jumping)
-                {
-                     SetMovementState(CharacterMovementState.Falling);
-                }
-            }
-        }
-        public bool IsColliderValidForCollisions(Collider coll) => !IgnoredColliders.Contains(coll);
-        public void AddVelocity(Vector3 velocity) => _internalVelocityAdd += velocity;
-        public void BeforeCharacterUpdate(float deltaTime) { }
-        public void OnGroundHit(Collider hitCollider, Vector3 hitNormal, Vector3 hitPoint, ref HitStabilityReport hitStabilityReport) { }
-        public void OnMovementHit(Collider hitCollider, Vector3 hitNormal, Vector3 hitPoint, ref HitStabilityReport hitStabilityReport) { }
-        public void ProcessHitStabilityReport(Collider hitCollider, Vector3 hitNormal, Vector3 hitPoint, Vector3 atCharacterPosition, Quaternion atCharacterRotation, ref HitStabilityReport hitStabilityReport) { }
-        protected void OnLanded() { /* PlayerAnimator.TriggerLanded(); */ }
-        protected void OnLeaveStableGround()
-        { 
-            _lastGroundedSpeedTier = _currentSpeedTierForJump;
-        }
-        public void OnDiscreteCollisionDetected(Collider hitCollider) { }
     }
 }

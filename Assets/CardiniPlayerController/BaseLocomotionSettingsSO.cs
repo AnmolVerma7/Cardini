@@ -26,7 +26,6 @@ namespace Cardini.Motion
         public float StableMovementSharpness = 15f;
         public float OrientationSharpness = 10f;
         public CardiniOrientationMethod OrientationMethod = CardiniOrientationMethod.TowardsMovement;
-        public CardiniBonusOrientationMethod BonusOrientation = CardiniBonusOrientationMethod.None;
         [Header("Air Mechanics")]
         public float MaxAirMoveSpeed = 10f;
         public float AirAccelerationSpeed = 15f;
@@ -46,7 +45,6 @@ namespace Cardini.Motion
         public float JumpPostGroundingGraceTime = 0.1f;
 
         [Header("Misc")]
-        public float BonusOrientationSharpness = 10f;
         public Vector3 Gravity = new Vector3(0, -30f, 0);
     }
 }
