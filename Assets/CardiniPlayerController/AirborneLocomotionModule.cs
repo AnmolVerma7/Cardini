@@ -42,6 +42,7 @@ namespace Cardini.Motion
             {
                 Controller.SetMovementState(CharacterMovementState.Jumping);
                 Controller.SetJumpedThisFrame(true); // Let controller know a jump was physically executed
+                PlayerAnimator?.TriggerJump();
             }
             else
             {
@@ -49,14 +50,16 @@ namespace Cardini.Motion
                 Controller.SetMovementState(CharacterMovementState.Falling);
                 Controller.SetLastGroundedSpeedTier(Controller._currentSpeedTierForJump); // Store speed before falling
             }
-             Controller._timeSinceLastAbleToJump = 0.001f; // Start counting time since last able to jump (now airborne)
+            Controller._timeSinceLastAbleToJump = 0.001f; // Start counting time since last able to jump (now airborne)
+            PlayerAnimator?.SetGrounded(false);
         }
 
         public override void OnExitState()
-        {
-            _initiatedByJumpThisFrame = false;
-            // Controller._jumpedThisFrame will be reset by CardiniController in its AfterCharacterUpdate
-        }
+{
+    _initiatedByJumpThisFrame = false;
+    // Make sure we clear any lingering jump states in the animator
+    PlayerAnimator?.SetGrounded(true);
+}
 
         public override void UpdateRotation(ref Quaternion currentRotation, float deltaTime)
         {
@@ -162,16 +165,12 @@ namespace Cardini.Motion
         }
 
         public override void PostGroundingUpdate(float deltaTime)
-        {
-            // This module is active only when airborne.
-            // If we JUST LANDED, CardiniController's ManageModuleTransitions should have already
-            // switched to GroundedLocomotionModule before this module's PostGroundingUpdate is called.
-            // However, if there's a frame delay, we might catch it here.
-            if (Motor.GroundingStatus.IsStableOnGround)
-            {
-                Controller.OnLandedInternal(); 
-                // Controller will handle transition back to GroundedModule.
-            }
-        }
+{
+    // This module is active only when airborne.
+    if (Motor.GroundingStatus.IsStableOnGround)
+    {
+        Controller.OnLandedInternal(); 
+    }
+}
     }
 }

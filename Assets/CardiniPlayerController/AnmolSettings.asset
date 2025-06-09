@@ -15,7 +15,7 @@ MonoBehaviour:
   DefaultCapsuleHeight: 2
   CrouchedCapsuleHeight: 1
   UseToggleSprint: 1
-  UseToggleCrouch: 1
+  UseToggleCrouch: 0
   WalkThreshold: 0.01
   JogThreshold: 0.5
   MaxWalkSpeed: 3
@@ -29,12 +29,12 @@ MonoBehaviour:
   AirAccelerationSpeed: 75
   Drag: 0
   AllowJumpingWhenSliding: 1
-  JumpUpSpeed_IdleWalk: 5
-  JumpUpSpeed_Jog: 6
-  JumpUpSpeed_Sprint: 10
+  JumpUpSpeed_IdleWalk: 13
+  JumpUpSpeed_Jog: 15
+  JumpUpSpeed_Sprint: 17
   JumpScalableForwardSpeed_IdleWalk: 0
   JumpScalableForwardSpeed_Jog: 0
   JumpScalableForwardSpeed_Sprint: 0
   JumpPreGroundingGraceTime: 0.1
   JumpPostGroundingGraceTime: 0.2
-  Gravity: {x: 0, y: -25, z: 0}
+  Gravity: {x: 0, y: -30, z: 0}

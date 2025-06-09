@@ -11,7 +11,8 @@ namespace Cardini.Motion
         protected KinematicCharacterMotor Motor { get; private set; }
         protected InputBridge InputBridge { get; private set; }
         protected BaseLocomotionSettingsSO Settings { get; private set; }
-        // We'll add IPlayerAnimator, EnvironmentScanner references here later
+        protected IPlayerAnimator PlayerAnimator { get; private set; }
+        // We'll add EnvironmentScanner references here later
 
         /// <summary>
         /// Called by CardiniController to provide references to core components.
@@ -19,9 +20,10 @@ namespace Cardini.Motion
         public virtual void Initialize(CardiniController controller)
         {
             Controller = controller;
-            Motor = controller.Motor; 
-            InputBridge = controller.inputBridge; 
-            Settings = controller.Settings; 
+            Motor = controller.Motor;
+            InputBridge = controller.inputBridge;
+            Settings = controller.Settings;
+            PlayerAnimator = controller.PlayerAnimator;
         }
 
         /// <summary>

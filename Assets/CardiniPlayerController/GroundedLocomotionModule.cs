@@ -50,6 +50,7 @@ namespace Cardini.Motion
             // Cleanup when leaving grounded state (e.g., if player jumps or falls)
             // Controller._lastGroundedSpeedTier might be set here based on current speed
             Controller.SetLastGroundedSpeedTier(Controller._currentSpeedTierForJump);
+            PlayerAnimator?.SetGrounded(false);
         }
 
         public override void UpdateRotation(ref Quaternion currentRotation, float deltaTime)
@@ -88,6 +89,37 @@ namespace Cardini.Motion
             {
                 currentDesiredMaxSpeed = 0f;
             }
+
+            // Calculate animator parameters
+            float normalizedSpeedTier = 0f;
+            if (_currentGroundedSubState == CharacterMovementState.Sprinting) normalizedSpeedTier = 3f;
+            else if (_currentGroundedSubState == CharacterMovementState.Jogging) normalizedSpeedTier = 2f;
+            else if (_currentGroundedSubState == CharacterMovementState.Walking) normalizedSpeedTier = 1f;
+            // else Idle, so 0f
+
+            // Calculate local velocities for 2D blend tree
+            // _moveInputVector is world-space camera-relative input
+            // We need it in character's local space for X/Z animation parameters
+            Vector3 localMoveInput = Motor.transform.InverseTransformDirection(Controller._moveInputVector);
+            float velocityX = localMoveInput.x;
+            float velocityZ = localMoveInput.z;
+
+            // If OrientationMethod is TowardsMovement, character always faces move direction.
+            // So, local X velocity for animation should be 0, and Z is forward speed.
+            if (Settings.OrientationMethod == CardiniOrientationMethod.TowardsMovement && Controller._moveInputVector.sqrMagnitude > 0.01f)
+            {
+                velocityX = 0f;
+                velocityZ = 1f; // Always moving "forward" relative to self
+                // normalizedSpeedTier already represents the speed magnitude (0,1,2,3)
+            }
+            else if (Controller._moveInputVector.sqrMagnitude < 0.01f) // No movement input
+            {
+                velocityX = 0f;
+                velocityZ = 0f;
+            }
+
+
+            PlayerAnimator?.SetLocomotionSpeeds(normalizedSpeedTier, velocityX, velocityZ);
             
             // --- Ground Movement Logic ---
             float currentVelocityMagnitude = currentVelocity.magnitude;
@@ -162,7 +194,7 @@ namespace Cardini.Motion
                 else
                 {
                     // Uncrouch successful
-                    if (Controller.MeshRoot) Controller.MeshRoot.localScale = Vector3.one;
+                    // if (Controller.MeshRoot) Controller.MeshRoot.localScale = Vector3.one;
                     IsCrouching = false; // This now calls Controller.SetCrouchingState(false)
                 }
             }
@@ -170,7 +202,8 @@ namespace Cardini.Motion
             {
                 IsCrouching = true; // This now calls Controller.SetCrouchingState(true)
                 Motor.SetCapsuleDimensions(Motor.Capsule.radius, Settings.CrouchedCapsuleHeight, Settings.CrouchedCapsuleHeight * 0.5f);
-                if (Controller.MeshRoot) Controller.MeshRoot.localScale = new Vector3(Controller.MeshRoot.localScale.x, Settings.CrouchedCapsuleHeight / Settings.DefaultCapsuleHeight, Controller.MeshRoot.localScale.z);
+                // if (Controller.MeshRoot)
+                //     Controller.MeshRoot.localScale = new Vector3(Controller.MeshRoot.localScale.x, Settings.CrouchedCapsuleHeight / Settings.DefaultCapsuleHeight, Controller.MeshRoot.localScale.z);
             }
             
             // Update the sub-state after all physics and crouch changes

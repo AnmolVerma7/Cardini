@@ -16,6 +16,9 @@ namespace Cardini.Motion
         public Transform MeshRoot; // Modules might need access for scaling etc.
         public Transform CameraFollowPoint;
 
+        [Header("Animation")]
+        public IPlayerAnimator PlayerAnimator;
+
         [Header("Collision Filtering")]
         public List<Collider> IgnoredColliders = new List<Collider>();
 
@@ -69,7 +72,18 @@ namespace Cardini.Motion
             if (inputBridge == null) inputBridge = GetComponentInParent<InputBridge>() ?? GetComponent<InputBridge>();
             if (Settings == null) Debug.LogError("CardiniController: BaseLocomotionSettingsSO not assigned!", this);
             if (inputBridge == null) Debug.LogError("CardiniController: InputBridge not found/assigned!", this);
-
+            if (PlayerAnimator == null)
+                {
+                    if (MeshRoot != null) // Assuming Animator/Bridge is on or under MeshRoot
+                    {
+                        PlayerAnimator = MeshRoot.GetComponentInChildren<IPlayerAnimator>();
+                    }
+                    if (PlayerAnimator == null) // Fallback to self if MeshRoot not assigned or Bridge is elsewhere
+                    {
+                        PlayerAnimator = GetComponentInChildren<IPlayerAnimator>();
+                    }
+                }
+                if (PlayerAnimator == null) Debug.LogWarning("CardiniController: IPlayerAnimator not found/assigned!", this);
             // Initialize all assigned movement modules
             foreach (var module in movementModules)
             {
@@ -123,7 +137,7 @@ namespace Cardini.Motion
             else if (Settings.OrientationMethod == CardiniOrientationMethod.TowardsMovement)
             {
                 // Maintain last look direction if not moving, otherwise update
-                if (_moveInputVector.sqrMagnitude > 0.001f) 
+                if (_moveInputVector.sqrMagnitude > 0.001f)
                     _lookInputVector = _moveInputVector.normalized;
                 else if (_lookInputVector.sqrMagnitude < 0.001f) // If look vector was also zero (e.g. at start)
                     _lookInputVector = cameraPlanarDirection; // Default to camera direction
@@ -156,6 +170,8 @@ namespace Cardini.Motion
             {
                 _shouldBeCrouching = inputBridge.Crouch.IsHeld;
             }
+
+            PlayerAnimator?.SetCrouching(_isCrouching);
         }
         
         private void HandleMajorStateInputs()
@@ -237,7 +253,7 @@ namespace Cardini.Motion
         {
             Vector3 jumpDirection = Motor.CharacterUp;
             // If jumping from an unstable slope, use ground normal for jump direction
-            if (Motor.GroundingStatus.FoundAnyGround && !Motor.GroundingStatus.IsStableOnGround) 
+            if (Motor.GroundingStatus.FoundAnyGround && !Motor.GroundingStatus.IsStableOnGround)
             {
                 jumpDirection = Motor.GroundingStatus.GroundNormal;
             }
@@ -245,12 +261,14 @@ namespace Cardini.Motion
             Motor.ForceUnground();
             _internalVelocityAdd += (jumpDirection * jumpUpSpeed) - Vector3.Project(Motor.BaseVelocity, Motor.CharacterUp);
             _internalVelocityAdd += (moveInputForJump.normalized * jumpForwardSpeed);
-            
-            _jumpRequested = false; 
-            _jumpConsumed = true; 
+
+            _jumpRequested = false;
+            _jumpConsumed = true;
             // _jumpedThisFrame will be set by AirborneModule or a new method if we centralize it.
             _jumpExecutionIntent = true; // Signal that a jump was just executed
 
+            PlayerAnimator?.TriggerJump();
+            Debug.Log($"ExecuteJump Called! PlayerAnimator is {(PlayerAnimator != null ? "VALID" : "NULL")}. Firing Jump Trigger. Frame: {Time.frameCount}");
             // The state transition to AirborneModule will happen in ManageModuleTransitions
             // due to Motor.ForceUnground() making IsStableOnGround false.
         }
@@ -305,7 +323,7 @@ namespace Cardini.Motion
 
         public void UpdateVelocity(ref Vector3 currentVelocity, float deltaTime)
         {
-            // ManageModuleTransitions(); // Call this once per frame
+            ManageModuleTransitions(); // Call this once per frame
 
             if (_activeMovementModule != null && CurrentMajorState == CharacterState.Locomotion)
             {
@@ -389,7 +407,8 @@ namespace Cardini.Motion
             // Called by modules upon landing
             SetJumpConsumed(false); // Allow new jump after landing
             _timeSinceLastAbleToJump = 0f;
-            // Potentially: PlayerAnimator.TriggerLanded();
+            PlayerAnimator?.SetGrounded(true);
+            PlayerAnimator.TriggerLand();
         }
 
         protected void OnLeaveStableGround() { _lastGroundedSpeedTier = _currentSpeedTierForJump; /* Called by AirborneModule when it takes over after ground */ }
@@ -406,7 +425,19 @@ namespace Cardini.Motion
         public void SetMovementState(CharacterMovementState newMoveState)
         {
             if (CurrentMovementState == newMoveState) return;
+            
+            CharacterMovementState oldMovementState = CurrentMovementState;
             CurrentMovementState = newMoveState;
+            PlayerAnimator?.SetMovementState(newMoveState); // <<<--- ANIMATOR CALL
+            // Additional specific calls based on state changes
+            if (newMoveState == CharacterMovementState.Crouching)
+            {
+                PlayerAnimator?.SetCrouching(true);
+            }
+            else if (oldMovementState == CharacterMovementState.Crouching && newMoveState != CharacterMovementState.Crouching)
+            {
+                PlayerAnimator?.SetCrouching(false);
+            }
             // Debug.Log($"Movement State changed to: {newMoveState}");
         }
     }
