@@ -268,7 +268,6 @@ namespace Cardini.Motion
             _jumpExecutionIntent = true; // Signal that a jump was just executed
 
             PlayerAnimator?.TriggerJump();
-            Debug.Log($"ExecuteJump Called! PlayerAnimator is {(PlayerAnimator != null ? "VALID" : "NULL")}. Firing Jump Trigger. Frame: {Time.frameCount}");
             // The state transition to AirborneModule will happen in ManageModuleTransitions
             // due to Motor.ForceUnground() making IsStableOnGround false.
         }
@@ -408,7 +407,7 @@ namespace Cardini.Motion
             SetJumpConsumed(false); // Allow new jump after landing
             _timeSinceLastAbleToJump = 0f;
             PlayerAnimator?.SetGrounded(true);
-            PlayerAnimator.TriggerLand();
+            PlayerAnimator?.TriggerLand();
         }
 
         protected void OnLeaveStableGround() { _lastGroundedSpeedTier = _currentSpeedTierForJump; /* Called by AirborneModule when it takes over after ground */ }

@@ -29965,7 +29965,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   animator: {fileID: 1571528281}
-  _speedTierDampTime: 0.1
+  _speedTierDampTime: 0.01
   _directionalDampTime: 0.05
 --- !u!1 &1572852571
 GameObject:

@@ -68,7 +68,8 @@ namespace Cardini.Motion
 
         public void TriggerLand()
         {
-            if (enabled && animator != null) animator.SetTrigger(_hashLand);
+            if (enabled && animator != null)
+                animator.SetTrigger(_hashLand);
         }
     }
 }
