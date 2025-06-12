@@ -6,7 +6,7 @@ namespace Cardini.Motion
     public enum CharacterState
     {
         Locomotion, // Normal movement (walking, sliding, wallrunning, etc.)
-        AbilitySelection,    
+        AbilitySelection,
         Combat,        // Combat-specific state (attacking, blocking, etc.) - Placeholder
         Interaction,   // Interacting with objects, UI, NPCs, etc. - Placeholder
         Cutscene       // Player control suspended - Placeholder
@@ -34,6 +34,24 @@ namespace Cardini.Motion
         // Add more specific parkour/action states as you develop them:
         // e.g., Mantling, Vaulting, LedgeGrabbing, etc.
     }
-    public enum CardiniOrientationMethod { TowardsCamera, TowardsMovement }
-    public enum CardiniBonusOrientationMethod { None, TowardsGravity, TowardsGroundSlopeAndGravity }
+    public enum CardiniOrientationMethod
+    {
+        TowardsCamera,
+        TowardsMovement
+    }
+
+    public enum AbilityType
+    {
+        Utility,
+        CombatAbility,
+    }
+
+    public enum AbilityActivationType
+    {
+        OnPress,          // Activate immediately on button press
+        OnHold,           // Activate while button is held down
+        OnRelease,        // Activate when button is released
+        Toggle,           // Toggle activation state on button press
+        Consumable     // Instant activation without button input (e.g., passive abilities)
+    }
 }

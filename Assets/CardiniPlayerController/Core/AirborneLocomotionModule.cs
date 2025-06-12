@@ -15,7 +15,7 @@ namespace Cardini.Motion
             get
             {
                 // If we still have upward velocity from a jump or were recently jumped
-                if (Controller._jumpedThisFrame || Motor.Velocity.y > 0.1f && Controller.CurrentMovementState == CharacterMovementState.Jumping)
+                if (Controller._jumpedThisFrameInternal || Motor.Velocity.y > 0.1f && Controller.CurrentMovementState == CharacterMovementState.Jumping)
                 {
                     return CharacterMovementState.Jumping;
                 }
@@ -48,9 +48,9 @@ namespace Cardini.Motion
             {
                 // If not initiated by jump, means we fell off an edge
                 Controller.SetMovementState(CharacterMovementState.Falling);
-                Controller.SetLastGroundedSpeedTier(Controller._currentSpeedTierForJump); // Store speed before falling
+                Controller.SetLastGroundedSpeedTier(Controller.CurrentSpeedTierForJump); // Store speed before falling
             }
-            Controller._timeSinceLastAbleToJump = 0.001f; // Start counting time since last able to jump (now airborne)
+            Controller.TimeSinceLastAbleToJump = 0.001f; // Start counting time since last able to jump (now airborne)
             PlayerAnimator?.SetGrounded(false);
         }
 
@@ -74,12 +74,12 @@ namespace Cardini.Motion
             // --- Handle Coyote Jump Initiation (if requested and conditions met) ---
             if (Controller.IsJumpRequested() && 
                 !Controller.IsJumpConsumed() && // Haven't already jumped in this airtime
-                Controller._timeSinceLastAbleToJump > 0f && // Must have been airborne for at least a tick
-                Controller._timeSinceLastAbleToJump <= Settings.JumpPostGroundingGraceTime &&
+                Controller.TimeSinceLastAbleToJump > 0f && // Must have been airborne for at least a tick
+                Controller.TimeSinceLastAbleToJump <= Settings.JumpPostGroundingGraceTime &&
                 !Motor.GroundingStatus.FoundAnyGround) // Double check we are truly off ground
             {
                 // This is a Coyote Jump
-                float jumpSpeedTierForCoyote = Controller._lastGroundedSpeedTier; // Use speed before falling
+                float jumpSpeedTierForCoyote = Controller.LastGroundedSpeedTier; // Use speed before falling
 
                 float actualJumpUpSpeed = Settings.JumpUpSpeed_IdleWalk; // Default for safety
                 float actualJumpForwardSpeed = Settings.JumpScalableForwardSpeed_IdleWalk;
@@ -96,7 +96,7 @@ namespace Cardini.Motion
                 }
                 
                 // Tell controller to execute the jump mechanics
-                Controller.ExecuteJump(actualJumpUpSpeed, actualJumpForwardSpeed, Controller._moveInputVector);
+                Controller.ExecuteJump(actualJumpUpSpeed, actualJumpForwardSpeed, Controller.MoveInputVector);
                 // ExecuteJump already sets _jumpConsumed, _jumpedThisFrame, _jumpRequested = false
 
                 // Set current movement state directly here, as ExecuteJump might not know the context
@@ -109,9 +109,9 @@ namespace Cardini.Motion
             // So, _initiatedByJumpThisFrame is more for setting the initial CharacterMovementState.Jumping.
 
             // --- Air Movement Logic (from CardiniController) ---
-            if (Controller._moveInputVector.sqrMagnitude > 0f)
+            if (Controller.MoveInputVector.sqrMagnitude > 0f)
             {
-                Vector3 addedVelocity = Controller._moveInputVector * Settings.AirAccelerationSpeed * deltaTime;
+                Vector3 addedVelocity = Controller.MoveInputVector * Settings.AirAccelerationSpeed * deltaTime;
                 Vector3 currentVelocityOnInputsPlane = Vector3.ProjectOnPlane(currentVelocity, Motor.CharacterUp);
 
                 if (currentVelocityOnInputsPlane.magnitude < Settings.MaxAirMoveSpeed)
@@ -152,7 +152,7 @@ namespace Cardini.Motion
             // _jumpConsumed is reset by CardiniController when grounded and not _jumpedThisFrame.
 
             // Increment time since last able to jump (since we are airborne)
-            Controller._timeSinceLastAbleToJump += deltaTime;
+            Controller.TimeSinceLastAbleToJump += deltaTime;
             
             // If a jump was requested but not consumed (e.g., buffered jump, or failed double jump)
             // and the buffer time has passed, clear the request.

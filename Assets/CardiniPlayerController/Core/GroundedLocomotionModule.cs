@@ -12,13 +12,13 @@ namespace Cardini.Motion
         // Properties from CardiniController we'll manage or influence here
         // (CardiniController will still hold the "source of truth" for some of these,
         //  this module will read/request changes)
-        private bool IsSprinting => Controller._isSprinting; // Read from Controller
+        private bool IsSprinting => Controller.IsSprinting; // Read from Controller
         private bool IsCrouching // Read from Controller's authoritative _isCrouching
         {
-            get => Controller._isCrouching;
+            get => Controller.IsCrouching;
             set => Controller.SetCrouchingState(value); // Request Controller to change physical crouch
         } 
-        private bool ShouldBeCrouching => Controller._shouldBeCrouching; // Read from Controller
+        private bool ShouldBeCrouching => Controller.ShouldBeCrouching; // Read from Controller
 
         public override int Priority => 0; // Base locomotion module
 
@@ -37,19 +37,19 @@ namespace Cardini.Motion
         {
             // When entering grounded state, determine initial sub-state
             // (Idle, Walking, Jogging, Sprinting, Crouching)
-            Controller._timeSinceLastAbleToJump = 0f; // Reset coyote timer when grounded
-            if (!Controller._jumpedThisFrame) // If we didn't just land from a jump that WE initiated
+            Controller.TimeSinceLastAbleToJump = 0f; // Reset coyote timer when grounded
+            if (!Controller._jumpedThisFrameInternal) // If we didn't just land from a jump that WE initiated
             {
                  Controller.ConsumeJumpRequest(); // Clear any buffered jump request if we land without jumping
             }
-            UpdateGroundedSubState(Controller._moveInputVector.magnitude);
+            UpdateGroundedSubState(Controller.MoveInputVector.magnitude);
         }
 
         public override void OnExitState()
         {
             // Cleanup when leaving grounded state (e.g., if player jumps or falls)
             // Controller._lastGroundedSpeedTier might be set here based on current speed
-            Controller.SetLastGroundedSpeedTier(Controller._currentSpeedTierForJump);
+            Controller.SetLastGroundedSpeedTier(Controller.CurrentSpeedTierForJump);
             PlayerAnimator?.SetGrounded(false);
         }
 
@@ -64,7 +64,7 @@ namespace Cardini.Motion
             if (Settings == null) return;
 
             // Use processed move input from Controller
-            float inputMagnitude = Controller._moveInputVector.magnitude; 
+            float inputMagnitude = Controller.MoveInputVector.magnitude; 
             UpdateGroundedSubState(inputMagnitude); // Update current sub-state (Idle, Walk, Jog, etc.)
 
             float currentDesiredMaxSpeed;
@@ -98,21 +98,21 @@ namespace Cardini.Motion
             // else Idle, so 0f
 
             // Calculate local velocities for 2D blend tree
-            // _moveInputVector is world-space camera-relative input
+            // MoveInputVector is world-space camera-relative input
             // We need it in character's local space for X/Z animation parameters
-            Vector3 localMoveInput = Motor.transform.InverseTransformDirection(Controller._moveInputVector);
+            Vector3 localMoveInput = Motor.transform.InverseTransformDirection(Controller.MoveInputVector);
             float velocityX = localMoveInput.x;
             float velocityZ = localMoveInput.z;
 
             // If OrientationMethod is TowardsMovement, character always faces move direction.
             // So, local X velocity for animation should be 0, and Z is forward speed.
-            if (Settings.OrientationMethod == CardiniOrientationMethod.TowardsMovement && Controller._moveInputVector.sqrMagnitude > 0.01f)
+            if (Settings.OrientationMethod == CardiniOrientationMethod.TowardsMovement && Controller.MoveInputVector.sqrMagnitude > 0.01f)
             {
                 velocityX = 0f;
                 velocityZ = 1f; // Always moving "forward" relative to self
                 // normalizedSpeedTier already represents the speed magnitude (0,1,2,3)
             }
-            else if (Controller._moveInputVector.sqrMagnitude < 0.01f) // No movement input
+            else if (Controller.MoveInputVector.sqrMagnitude < 0.01f) // No movement input
             {
                 velocityX = 0f;
                 velocityZ = 0f;
@@ -127,11 +127,11 @@ namespace Cardini.Motion
             currentVelocity = Motor.GetDirectionTangentToSurface(currentVelocity, effectiveGroundNormal) * currentVelocityMagnitude;
 
             // Get the PURE DIRECTION of input from the controller
-            Vector3 inputDirection = Controller._moveInputVector.normalized; 
+            Vector3 inputDirection = Controller.MoveInputVector.normalized; 
 
             // Reorient the desired input direction onto the ground plane
             Vector3 reorientedInputDirection = inputDirection; 
-            if (Controller._moveInputVector.sqrMagnitude > 0.01f) 
+            if (Controller.MoveInputVector.sqrMagnitude > 0.01f) 
             {
                 Vector3 inputRight = Vector3.Cross(inputDirection, Motor.CharacterUp);
                 reorientedInputDirection = Vector3.Cross(effectiveGroundNormal, inputRight).normalized;
@@ -156,7 +156,7 @@ namespace Cardini.Motion
                 bool canGroundJump = (Settings.AllowJumpingWhenSliding ? Motor.GroundingStatus.FoundAnyGround : Motor.GroundingStatus.IsStableOnGround);
                 if (!Controller.IsJumpConsumed() && canGroundJump)
                 {
-                    float jumpSpeedTierForThisJump = Controller._currentSpeedTierForJump; 
+                    float jumpSpeedTierForThisJump = Controller.CurrentSpeedTierForJump; 
                     float actualJumpUpSpeed = Settings.JumpUpSpeed_IdleWalk;
                     float actualJumpForwardSpeed = Settings.JumpScalableForwardSpeed_IdleWalk;
 
@@ -171,7 +171,7 @@ namespace Cardini.Motion
                         actualJumpForwardSpeed = Settings.JumpScalableForwardSpeed_Jog;
                     }
                     
-                    Controller.ExecuteJump(actualJumpUpSpeed, actualJumpForwardSpeed, Controller._moveInputVector);
+                    Controller.ExecuteJump(actualJumpUpSpeed, actualJumpForwardSpeed, Controller.MoveInputVector);
                 }
             }
         }
@@ -181,12 +181,12 @@ namespace Cardini.Motion
             if (Settings == null) return;
 
             // --- Crouching Capsule Logic ---
-            // Reads Controller._shouldBeCrouching, updates Controller._isCrouching (physical state)
+            // Reads Controller.ShouldBeCrouching, updates Controller._isCrouching (physical state)
             if (IsCrouching && !ShouldBeCrouching) // Attempting to uncrouch
             {
                 // Temporarily set to standing height for overlap test
                 Motor.SetCapsuleDimensions(Motor.Capsule.radius, Settings.DefaultCapsuleHeight, Settings.DefaultCapsuleHeight * 0.5f);
-                if (Motor.CharacterOverlap(Motor.TransientPosition, Motor.TransientRotation, Controller._probedColliders, Motor.CollidableLayers, QueryTriggerInteraction.Ignore) > 0)
+                if (Motor.CharacterOverlap(Motor.TransientPosition, Motor.TransientRotation, Controller.ProbedColliders_SharedBuffer, Motor.CollidableLayers, QueryTriggerInteraction.Ignore) > 0)
                 {
                     // Obstructed, revert to crouching dimensions
                     Motor.SetCapsuleDimensions(Motor.Capsule.radius, Settings.CrouchedCapsuleHeight, Settings.CrouchedCapsuleHeight * 0.5f);
@@ -208,7 +208,7 @@ namespace Cardini.Motion
             
             // Update the sub-state after all physics and crouch changes
             // This ensures the _currentGroundedSubState reflects the true physical state (e.g. actually crouching)
-            UpdateGroundedSubState(Controller._moveInputVector.magnitude); 
+            UpdateGroundedSubState(Controller.MoveInputVector.magnitude); 
         }
 
         public override void PostGroundingUpdate(float deltaTime)
@@ -223,32 +223,32 @@ namespace Cardini.Motion
         private void UpdateGroundedSubState(float inputMagnitude)
         {
             // Determine and set the specific grounded sub-state (Idle, Walking, etc.)
-            // This also updates the Controller's _currentSpeedTierForJump for the next potential jump
+            // This also updates the Controller's CurrentSpeedTierForJump for the next potential jump
             CharacterMovementState newSubState;
             if (IsCrouching) // Prioritize crouching
             {
                 newSubState = CharacterMovementState.Crouching;
-                Controller._currentSpeedTierForJump = Settings.MaxCrouchSpeed;
+                Controller.CurrentSpeedTierForJump = Settings.MaxCrouchSpeed;
             }
             else if (IsSprinting) // Then sprinting
             {
                 newSubState = CharacterMovementState.Sprinting;
-                Controller._currentSpeedTierForJump = Settings.MaxSprintSpeed;
+                Controller.CurrentSpeedTierForJump = Settings.MaxSprintSpeed;
             }
             else if (inputMagnitude > Settings.JogThreshold)
             {
                 newSubState = CharacterMovementState.Jogging;
-                Controller._currentSpeedTierForJump = Settings.MaxJogSpeed;
+                Controller.CurrentSpeedTierForJump = Settings.MaxJogSpeed;
             }
             else if (inputMagnitude > Settings.WalkThreshold)
             {
                 newSubState = CharacterMovementState.Walking;
-                Controller._currentSpeedTierForJump = Settings.MaxWalkSpeed;
+                Controller.CurrentSpeedTierForJump = Settings.MaxWalkSpeed;
             }
             else
             {
                 newSubState = CharacterMovementState.Idle;
-                Controller._currentSpeedTierForJump = 0f; // For idle jumps
+                Controller.CurrentSpeedTierForJump = 0f; // For idle jumps
             }
 
             if (_currentGroundedSubState != newSubState)

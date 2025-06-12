@@ -8,16 +8,32 @@ namespace Cardini.UI
     {
         [Header("References")]
         [SerializeField] private CardiniController playerController;
-        [SerializeField] private TextMeshProUGUI stateText;
+        [SerializeField] private TextMeshProUGUI majorStateText;
+        [SerializeField] private TextMeshProUGUI activeModuleText;
+        [SerializeField] private TextMeshProUGUI movementStateText;
         [SerializeField] private TextMeshProUGUI groundingText;
         [SerializeField] private TextMeshProUGUI speedText;
 
         void Update()
         {
-            if (playerController == null || stateText == null) return;
+            if (playerController == null) return;
 
-            // Display the current movement state enum as a string
-            stateText.text = $"State: {playerController.CurrentMovementState}";
+            if (majorStateText != null)
+            {
+                majorStateText.text = $"Major State: {playerController.CurrentMajorState}";
+            }
+
+            if (movementStateText != null)
+            {
+                // This already shows the sub-state from the active module
+                movementStateText.text = $"Movement State: {playerController.CurrentMovementState}";
+            }
+
+            // Optional: Display active module name
+            if (activeModuleText != null)
+            {
+                activeModuleText.text = $"Active Module: {playerController.ActiveModuleName}";
+            }
 
             // Enhanced ground status info
             string groundInfo;
