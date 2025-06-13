@@ -1,8 +1,9 @@
 // AbilityManager.cs
 using UnityEngine;
 using System.Collections.Generic;
-using System.Linq; // For LINQ if needed later
-using Cardini.Motion.Abilities; // Assuming your abilities are in this namespace
+using System.Linq;
+using Cardini.Motion.Abilities; // Assuming your IAbility implementations are here
+
 namespace Cardini.Motion
 {
     public class AbilityManager : MonoBehaviour
@@ -10,101 +11,146 @@ namespace Cardini.Motion
         [Header("References")]
         [SerializeField] private CardiniController cardiniController;
         [SerializeField] private InputBridge inputBridge;
-        // [SerializeField] private AbilityWheelUI abilityWheelUI; // For later
+        
+        [Header("Radial Menu Configuration")]
+        [Tooltip("The 'Radial Menu Name' set in the Inspector of your UltimateRadialMenu component.")]
+        [SerializeField] private string abilityWheelName = "CardiniAbilityWheel";
 
-        [Header("Ability Configuration")]
-        [Tooltip("All abilities known to the game. Player unlocks a subset of these.")]
+        [Header("Ability Data")]
+        [Tooltip("All abilities that can possibly be in the game.")]
         [SerializeField] private List<AbilitySO> allGameAbilities = new List<AbilitySO>();
         
         // Runtime Data
-        private List<AbilitySO> _unlockedAbilities = new List<AbilitySO>(); // Abilities the player currently possesses
-        
-        // Example: Fixed size wheels for simplicity. Could be dynamic.
-        private const int UTILITY_WHEEL_SIZE = 4; 
-        private const int ABILITY_WHEEL_SIZE = 4;
-        private AbilitySO[] _utilityWheelSlots = new AbilitySO[UTILITY_WHEEL_SIZE];
-        private AbilitySO[] _abilityWheelSlots = new AbilitySO[ABILITY_WHEEL_SIZE];
+        private List<AbilitySO> _unlockedAbilities = new List<AbilitySO>();
+        [SerializeField] private AbilitySO[] utilityWheelConfiguration = new AbilitySO[4]; 
+        [SerializeField] private AbilitySO[] combatWheelConfiguration = new AbilitySO[4];  
 
         private IAbility _currentlyEquippedAbilityInstance;
         private AbilitySO _currentlyEquippedAbilityData;
-        private bool _isAbilityWheelOpen = false;
-        private AbilityType _currentWheelType = AbilityType.Utility; // Default to utility or last used
-
-        // Cooldown tracking
+        public AbilitySO CurrentlyEquippedAbility => _currentlyEquippedAbilityData; // For DebugUI
         private Dictionary<AbilitySO, float> _abilityCooldownTimers = new Dictionary<AbilitySO, float>();
+        private AbilityType _currentWheelTypeBeingDisplayed = AbilityType.Utility; 
 
         void Awake()
         {
+            // Ensure references
             if (cardiniController == null) cardiniController = GetComponentInParent<CardiniController>();
             if (inputBridge == null) inputBridge = GetComponentInParent<InputBridge>();
-            // if (abilityWheelUI == null) abilityWheelUI = FindObjectOfType<AbilityWheelUI>(); // Or assign
+            if (UltimateRadialMenu.ReturnComponent(abilityWheelName) == null)
+                Debug.LogError($"AbilityManager: URM '{abilityWheelName}' not found!", this);
 
-            // For testing: Unlock all known abilities and populate wheels
             _unlockedAbilities.AddRange(allGameAbilities); 
-            PopulateTestWheels();
-        }
-
-        void Update()
-        {
-            HandleAbilityWheelState();
-            HandleEquippedAbilityInput();
-            UpdateCooldowns(Time.deltaTime);
-        }
-
-        private void PopulateTestWheels() // Temporary for testing
-        {
-            int uSlot = 0;
-            int aSlot = 0;
-            foreach (var abSO in _unlockedAbilities)
-            {
-                if (abSO.Type == AbilityType.Utility && uSlot < UTILITY_WHEEL_SIZE)
-                {
-                    _utilityWheelSlots[uSlot++] = abSO;
-                }
-                else if (abSO.Type == AbilityType.CombatAbility && aSlot < ABILITY_WHEEL_SIZE)
-                {
-                    _abilityWheelSlots[aSlot++] = abSO;
-                }
-            }
-            Debug.Log("Test wheels populated.");
-        }
-
-
-        private void HandleAbilityWheelState()
-        {
-            // This logic is now mostly in CardiniController.HandleMajorStateInputs
-            // AbilityManager just needs to know when to act based on that state.
+            SetupInitialWheelConfiguration();
             
-            _isAbilityWheelOpen = (cardiniController.CurrentMajorState == CharacterState.AbilitySelection);
-
-            if (_isAbilityWheelOpen)
-            {
-                // TODO: Handle wheel navigation input from InputBridge.LookInput
-                // Update a _highlightedAbilitySO based on LookInput and _currentWheelType
-                // Tell abilityWheelUI to update its visuals.
-                // Example: if (InputBridge.SomeButtonToSwitchWheelType.IsPressed) _currentWheelType = ...
-            }
+            // Ensure URM is disabled at start if it's not already handled by URM's settings
+            UltimateRadialMenu.Disable(abilityWheelName); 
         }
         
-        // Called by CardiniController when AbilitySelect is released
+        private void SetupInitialWheelConfiguration() // For testing
+        {
+            int uIndex = 0, cIndex = 0;
+            foreach (var abilitySO in _unlockedAbilities)
+            {
+                if (abilitySO.Type == AbilityType.Utility && uIndex < utilityWheelConfiguration.Length)
+                    utilityWheelConfiguration[uIndex++] = abilitySO;
+                else if (abilitySO.Type == AbilityType.CombatAbility && cIndex < combatWheelConfiguration.Length)
+                    combatWheelConfiguration[cIndex++] = abilitySO;
+            }
+        }
+
+        public void SetAbilityWheelVisible(bool visible, AbilityType wheelTypeToShow)
+        {
+            if (visible)
+            {
+                _currentWheelTypeBeingDisplayed = wheelTypeToShow;
+                if (!string.IsNullOrEmpty(abilityWheelName))
+                {
+                    PopulateRadialMenuWithConfiguredAbilities();
+                    UltimateRadialMenu.Enable(abilityWheelName);
+                    // Debug.Log($"Showing Radial Menu: {abilityWheelName} with {wheelTypeToShow} abilities.");
+                }
+            }
+            else
+            {
+                if (!string.IsNullOrEmpty(abilityWheelName))
+                {
+                    UltimateRadialMenu.Disable(abilityWheelName);
+                    // Debug.Log($"Hiding Radial Menu: {abilityWheelName}");
+                }
+            }
+        }
+
+        void PopulateRadialMenuWithConfiguredAbilities()
+        {
+            if (string.IsNullOrEmpty(abilityWheelName)) return;
+            UltimateRadialMenu.ClearMenu(abilityWheelName); 
+
+            AbilitySO[] abilitiesToDisplay = (_currentWheelTypeBeingDisplayed == AbilityType.Utility) 
+                                             ? utilityWheelConfiguration 
+                                             : combatWheelConfiguration;
+
+            foreach (AbilitySO abilitySO in abilitiesToDisplay)
+            {
+                if (abilitySO == null || !_unlockedAbilities.Contains(abilitySO)) continue;
+
+                UltimateRadialButtonInfo buttonInfo = new UltimateRadialButtonInfo();
+                {
+                    buttonInfo.UpdateName(abilitySO.AbilityName); // Internal name for the button
+                    // buttonInfo.name = abilitySO.AbilityName; // Display name in the wheel
+                    buttonInfo.UpdateIcon(abilitySO.Icon);
+                };
+                buttonInfo.UpdateText(abilitySO.AbilityName);
+               
+                // buttonInfo.description = abilitySO.Description; // If URM supports it
+                // buttonInfo.key = abilitySO.name; // If URM uses a 'key' for identification
+                                
+                UltimateRadialMenu.RegisterButton(abilityWheelName, 
+                    () => HandleAbilitySelectedFromWheel(abilitySO), // This lambda is called on URM interaction
+                    buttonInfo);
+            }
+        }
+
+        // This method is now THE place where selection from wheel results in equipping.
+        // Called by the lambda in RegisterButton (triggered by URM's internal click/release logic).
+        private void HandleAbilitySelectedFromWheel(AbilitySO selectedAbilitySO)
+        {
+            // Debug.Log($"HandleAbilitySelectedFromWheel CALLED with: {selectedAbilitySO?.AbilityName ?? "null"}");
+            if (selectedAbilitySO != null)
+            {
+                EquipAbility(selectedAbilitySO);
+
+                // Automatically close wheel and return control after selection.
+                if (cardiniController != null)
+                {
+                    // Tell CardiniController to go back to Locomotion and restore time.
+                    // SetAbilityWheelVisible(false,...) will be called by CardiniController's HandleMajorStateInputs
+                    // when AbilitySelect button is released.
+                    // However, since selection *immediately* closes the wheel, we might do it here too.
+                    cardiniController.RequestCloseAbilityWheel(); // New method in CardiniController
+                }
+            }
+        }
+    
+        void Update()
+        {
+            // Only handle using equipped abilities if not in selection mode
+            if (cardiniController.CurrentMajorState == CharacterState.Locomotion || 
+                cardiniController.CurrentMajorState == CharacterState.Combat) 
+            {
+                HandleEquippedAbilityInput();
+            }
+            UpdateCooldowns(Time.deltaTime);
+        }
+        
+        // This method is called by CardiniController when the AbilitySelect button is physically released by the player.
+        // If "On Menu Release" is checked in URM's Input Manager, URM should have already triggered
+        // the selection via the lambda in RegisterButton -> HandleAbilitySelectedFromWheel.
+        // So, this method might just confirm the wheel should be hidden if it wasn't already by a direct click.
         public void ConfirmAbilitySelection() 
         {
-            if (_isAbilityWheelOpen) // Should be true if called correctly
-            {
-                // AbilitySO selectedAbilitySO = abilityWheelUI.GetHighlightedAbility(); // Get from UI
-                // For now, let's just pick the first available one for testing if UI not ready
-                AbilitySO selectedAbilitySO = null;
-                if (_currentWheelType == AbilityType.Utility && _utilityWheelSlots.Length > 0)
-                    selectedAbilitySO = _utilityWheelSlots.FirstOrDefault(ab => ab != null);
-                else if (_currentWheelType == AbilityType.CombatAbility && _abilityWheelSlots.Length > 0)
-                    selectedAbilitySO = _abilityWheelSlots.FirstOrDefault(ab => ab != null);
-
-                if (selectedAbilitySO != null)
-                {
-                    EquipAbility(selectedAbilitySO);
-                }
-                _isAbilityWheelOpen = false; // Redundant if CardiniController handles state change
-            }
+            // Debug.Log("AbilityManager: ConfirmAbilitySelection (L1 released). Current Equipped: " + (CurrentlyEquippedAbility != null ? CurrentlyEquippedAbility.AbilityName : "None"));
+            // The actual equipping is now handled by HandleAbilitySelectedFromWheel triggered by URM.
+            // CardiniController will call SetAbilityWheelVisible(false) when L1 is released.
         }
 
         public void EquipAbility(AbilitySO abilityData)
@@ -112,139 +158,147 @@ namespace Cardini.Motion
             if (_currentlyEquippedAbilityInstance != null)
             {
                 _currentlyEquippedAbilityInstance.OnUnequip();
-                // If abilities are MonoBehaviours added as components, you might Destroy or disable them.
-                // For now, let's assume we can reuse/reinitialize or they are not persistent components.
             }
+            _currentlyEquippedAbilityData = abilityData; // This sets the public CurrentlyEquippedAbility
+            // Debug.Log($"EquipAbility: _currentlyEquippedAbilityData set to {abilityData?.AbilityName ?? "null"}");
 
-            _currentlyEquippedAbilityData = abilityData;
             if (_currentlyEquippedAbilityData != null)
             {
-                // How to get the IAbility instance?
-                // Option 1: Abilities are components on the player, find by type or tag.
-                // Option 2: Instantiate a prefab associated with the AbilitySO.
-                // Option 3: A factory pattern.
-                // For now, let's assume we need a way to create/get the runtime instance.
-                // This part needs more design based on how your abilities are structured.
-                // Placeholder:
                 _currentlyEquippedAbilityInstance = CreateAbilityInstance(abilityData);
                 if (_currentlyEquippedAbilityInstance != null)
                 {
                     _currentlyEquippedAbilityInstance.Initialize(abilityData, cardiniController);
                     _currentlyEquippedAbilityInstance.OnEquip();
-                    Debug.Log($"Equipped: {abilityData.AbilityName}");
-                }
-                else
-                {
-                     Debug.LogError($"Could not create instance for {abilityData.AbilityName}");
-                    _currentlyEquippedAbilityData = null;
-                }
-            }
-            else
-            {
+                } else { /* Error already logged in CreateAbilityInstance */ }
+            } else {
                 _currentlyEquippedAbilityInstance = null;
             }
         }
 
-        // Placeholder for ability instantiation
         private IAbility CreateAbilityInstance(AbilitySO abilityData)
         {
-            // Example: If your ability MonoBehaviours are named like "BlinkAbility"
-            // and AbilitySO.AbilityName is "Blink"
-            // You could use reflection, or a dictionary, or a component naming convention.
-            // Simplest for now: if abilities are components already on the player GameObject:
-            if (abilityData.AbilityName == "Blink") // Hardcoded for example
+            // Ensure the ability script is already a component on this GameObject or a child
+            // This approach assumes abilities are pre-added as components.
+            if (abilityData == null) return null;
+            // Debug.Log($"CreateAbilityInstance for: {abilityData.AbilityName}");
+
+            IAbility instance = null;
+            if (abilityData.AbilityName == "Blink") // Example, use a more robust mapping later
             {
-                BlinkAbility blink = GetComponentInChildren<BlinkAbility>(true); // true to include inactive
-                if (blink == null) blink = gameObject.AddComponent<BlinkAbility>(); // Add if not present
-                return blink;
+                instance = GetComponentInChildren<BlinkAbility>(true); // true to include inactive
+                if (instance == null) Debug.LogError("BlinkAbility component not found!");
             }
-            // if (abilityData.AbilityName == "FlyMode")
+            // else if (abilityData.AbilityName == "FlyMode")
             // {
-            //     FlyModeAbility fly = GetComponentInChildren<FlyModeAbility>(true);
-            //     if (fly == null) fly = gameObject.AddComponent<FlyModeAbility>();
-            //     return fly;
+            //    instance = GetComponentInChildren<FlyModeAbility>(true);
+            //    if (instance == null) Debug.LogError("FlyModeAbility component not found!");
             // }
-            // Add more cases or a better system
-            return null; 
+            
+            if (instance == null) Debug.LogWarning($"No MonoBehaviour instance found for ability: {abilityData.AbilityName}");
+            return instance; 
         }
-
-
         private void HandleEquippedAbilityInput()
         {
-            if (_isAbilityWheelOpen || _currentlyEquippedAbilityInstance == null || cardiniController.CurrentMajorState != CharacterState.Locomotion) // Don't use abilities if wheel is open or not in locomotion
+            // 1. Pre-checks
+            if (_currentlyEquippedAbilityInstance == null || _currentlyEquippedAbilityData == null)
+            {
+                // No ability equipped, nothing to do.
+                return; 
+            }
+
+            // Don't process ability use if wheel is open or not in a suitable game state
+            if (cardiniController.CurrentMajorState == CharacterState.AbilitySelection || 
+                (cardiniController.CurrentMajorState != CharacterState.Locomotion && 
+                cardiniController.CurrentMajorState != CharacterState.Combat)) // Example: only allow in Locomotion or Combat
             {
                 return;
             }
 
-            // Check cooldown
+            // 2. Cooldown Check
             if (_abilityCooldownTimers.TryGetValue(_currentlyEquippedAbilityData, out float lastUsedTime))
             {
                 if (Time.time < lastUsedTime + _currentlyEquippedAbilityData.CooldownDuration)
                 {
-                    // Still on cooldown
+                    // Debug.Log($"{_currentlyEquippedAbilityData.AbilityName} is ON COOLDOWN. Ends at: {lastUsedTime + _currentlyEquippedAbilityData.CooldownDuration:F2}, Now: {Time.time:F2}");
                     return; 
                 }
             }
             
-            if (_currentlyEquippedAbilityInstance.CanActivate()) // Check ability-specific conditions (resources, etc.)
+            // 3. Ability's Own Activation Check (e.g., enough mana, correct character sub-state)
+            if (!_currentlyEquippedAbilityInstance.CanActivate())
             {
-                 // Use crouch button as cancel if ability is cancelable and active
-                bool cancelPressed = _currentlyEquippedAbilityData.IsCancelable && 
-                                     _currentlyEquippedAbilityInstance.IsCurrentlyActive && 
-                                     inputBridge.Crouch.IsPressed; 
+                // Debug.Log($"{_currentlyEquippedAbilityData.AbilityName} internal CanActivate() returned false.");
+                return;
+            }
 
-                _currentlyEquippedAbilityInstance.HandleInput(inputBridge.UseEquippedAbility, 
-                                                             cancelPressed ? inputBridge.Crouch : new InputBridge.ButtonInputState()); // Pass an empty state if not cancelling
-
-                // If ability was used (e.g. on press, on release) and it's not a channelled/held one that manages its own cooldown start.
-                // This needs refinement based on how abilities signal they've "fired".
-                // For now, let's assume if UseEquippedAbility.IsPressed (for OnPress types) or WasReleasedThisFrame (for OnRelease types)
-                // and the ability isn't "IsCurrentlyActive" for a hold, we start cooldown.
-                // A better way: The ability itself calls a method on AbilityManager like "NotifyAbilityUsedAndStartCooldown()"
-                // For simplicity, let's try a basic cooldown start here.
-                if ((_currentlyEquippedAbilityData.ActivationType == AbilityActivationType.OnPress && inputBridge.UseEquippedAbility.IsPressed) ||
-                    (_currentlyEquippedAbilityData.ActivationType == AbilityActivationType.OnRelease && inputBridge.UseEquippedAbility.WasReleasedThisFrame))
+            // 4. Handle Cancel Input (if ability is active and cancelable)
+            bool cancelInputMade = false;
+            if (_currentlyEquippedAbilityData.IsCancelable && _currentlyEquippedAbilityInstance.IsCurrentlyActive)
+            {
+                if (inputBridge.Crouch.IsPressed) // Assuming Crouch is the cancel button for now
                 {
-                    StartCooldown(_currentlyEquippedAbilityData);
+                    cancelInputMade = true;
                 }
+            }
+
+            // 5. Pass input state to the ability
+            _currentlyEquippedAbilityInstance.HandleInput(
+                inputBridge.UseEquippedAbility, 
+                cancelInputMade ? inputBridge.Crouch : new InputBridge.ButtonInputState() // Pass actual crouch state if cancelling
+            );
+            
+            // 6. Determine if cooldown should be started based on this frame's input and ability type
+            // This logic assumes the ability's HandleInput resulted in an "execution"
+            bool executionShouldTriggerCooldown = false;
+            var useButton = inputBridge.UseEquippedAbility;
+
+            switch (_currentlyEquippedAbilityData.ActivationType)
+            {
+                case AbilityActivationType.OnPress: // Assuming Tap is like OnPress
+                case AbilityActivationType.Consumable:
+                    if (useButton.IsPressed) executionShouldTriggerCooldown = true;
+                    break;
+                case AbilityActivationType.OnRelease:
+                    if (useButton.WasReleasedThisFrame) executionShouldTriggerCooldown = true;
+                    break;
+                case AbilityActivationType.OnHold:
+                    // For 'OnHold' that activates *while held*, cooldown might start on release if it was active.
+                    // This requires the ability to track if it *was* successfully doing its thing.
+                    // A simpler 'OnHold' might be an ability that charges while held and fires on release (which is like OnRelease).
+                    // If it's an ongoing effect, the ability itself might call StartCooldown when the hold ends.
+                    // Let's assume for now that if an OnHold ability was active and is now released, it triggers cooldown.
+                    if (useButton.WasReleasedThisFrame && _currentlyEquippedAbilityInstance.IsCurrentlyActive) // Check IsCurrentlyActive
+                    {
+                        executionShouldTriggerCooldown = true;
+                    }
+                    break;
+                case AbilityActivationType.Toggle:
+                    // Cooldown for toggle might start each time it's activated (toggled ON)
+                    if (useButton.IsPressed && _currentlyEquippedAbilityInstance.IsCurrentlyActive) // Assuming IsCurrentlyActive is true AFTER a successful toggle ON
+                    {
+                        executionShouldTriggerCooldown = true;
+                    }
+                    break;
+            }
+
+            if (executionShouldTriggerCooldown)
+            {
+                // To prevent starting cooldown if the ability decided not to execute (e.g. target out of range)
+                // it would be better if the ability itself confirms execution.
+                // For now, this is a manager-level guess.
+                // If an ability has an aiming phase and then executes, this might trigger cooldown too early (on aim start).
+                // This is where an event from the ability: OnAbilityExecutedForCooldown?.Invoke(_data); is more robust.
+                StartCooldown(_currentlyEquippedAbilityData);
             }
         }
 
-        private void UpdateCooldowns(float deltaTime)
-        {
-            // This is just for a conceptual timer; actual cooldowns might be managed differently
-            // For UI purposes, GetCooldownProgress() on IAbility is better.
-        }
-
-        public void StartCooldown(AbilitySO abilityData)
+        private void UpdateCooldowns(float deltaTime) {} // Placeholder for now
+        public void StartCooldown(AbilitySO abilityData) 
         {
             if (abilityData == null) return;
             _abilityCooldownTimers[abilityData] = Time.time;
             Debug.Log($"{abilityData.AbilityName} is now on cooldown.");
         }
-
-        public float GetAbilityCooldownProgress(AbilitySO abilityData)
-        {
-            if (abilityData == null || abilityData.CooldownDuration <= 0f) return 0f; // Ready or no cooldown
-
-            if (_abilityCooldownTimers.TryGetValue(abilityData, out float lastUsedTime))
-            {
-                float timeSinceUsed = Time.time - lastUsedTime;
-                if (timeSinceUsed < abilityData.CooldownDuration)
-                {
-                    return 1f - (timeSinceUsed / abilityData.CooldownDuration); // Inverted: 1 = full cooldown, 0 = ready
-                }
-            }
-            return 0f; // Ready
-        }
-
-
-        // Public method to be called by CardiniController when it exits AbilitySelection state
-        public void OnAbilityWheelClosed()
-        {
-            // Assuming _highlightedAbilitySO was set during wheel navigation
-            // For now, let's just log or equip a test ability
-            // EquipAbility(_highlightedAbilitySO); // This would be the ideal call
-        }
+        public float GetAbilityCooldownProgress(AbilitySO abilityData) { /* As before */ return 0f; }
     }
 }

@@ -33,13 +33,13 @@ namespace Cardini.Motion
         [SerializeField] public CharacterState CurrentMajorState { get; private set; } = CharacterState.Locomotion;
         [SerializeField] public CharacterMovementState CurrentMovementState { get; private set; } = CharacterMovementState.Idle;
         public string ActiveModuleName => _activeMovementModule != null ? _activeMovementModule.GetType().Name : "None";
-        
+
         // These are derived from input and settings, readable by modules
         public bool IsSprinting { get; private set; }
         public bool ShouldBeCrouching { get; private set; } // Desired state from input + toggle logic
-        
+
         // This is the authoritative PHYSICAL crouch state, set by modules (typically GroundedModule)
-        public bool IsCrouching { get; private set; } 
+        public bool IsCrouching { get; private set; }
 
         public float CurrentSpeedTierForJump { get; set; } // Modules can update this (Grounded primarily)
         public float LastGroundedSpeedTier { get; private set; } // Set when leaving ground
@@ -55,7 +55,7 @@ namespace Cardini.Motion
         private bool _jumpExecutionIntentInternal = false;
         public bool _jumpedThisFrameInternal;// Set by AirborneModule during jump execution
         public float TimeSinceJumpRequested { get; private set; } = Mathf.Infinity;
-        public float TimeSinceLastAbleToJump  { get; set; } = 0f; // Modules (Airborne) update this
+        public float TimeSinceLastAbleToJump { get; set; } = 0f; // Modules (Airborne) update this
 
         // Internal KCC variables
         public Collider[] ProbedColliders_SharedBuffer { get; private set; } = new Collider[8]; // Modules might need for CharacterOverlap
@@ -65,6 +65,9 @@ namespace Cardini.Motion
         private bool _sprintToggleActive = false;
         private bool _crouchToggleActive = false;
 
+        [Header("Abilites")]
+        private AbilityType _currentWheelTypeToDisplay = AbilityType.Utility;
+        private AbilityType _currentWheelTypeBeingDisplayed;
 
         private void Awake()
         {
@@ -88,7 +91,7 @@ namespace Cardini.Motion
                     PlayerAnimator = GetComponentInChildren<IPlayerAnimator>();
                 }
             }
-                if (PlayerAnimator == null) Debug.LogWarning("CardiniController: IPlayerAnimator not found/assigned!", this);
+            if (PlayerAnimator == null) Debug.LogWarning("CardiniController: IPlayerAnimator not found/assigned!", this);
             // Initialize all assigned movement modules
             foreach (var module in movementModules)
             {
@@ -181,26 +184,53 @@ namespace Cardini.Motion
 
         private void HandleMajorStateInputs()
         {
+            if (abilityManager == null) return; // Can't do anything without the manager
+
             bool wasAbilityWheelOpen = (CurrentMajorState == CharacterState.AbilitySelection);
+
+            // --- Optional: Add logic here to switch _currentWheelTypeToDisplay ---
+            // Example: Press a specific button while AbilitySelect is held to switch wheel type
+            // if (inputBridge.AbilitySelect.IsHeld) {
+            //     if (Input.GetKeyDown(KeyCode.Alpha1)) { // Replace with InputBridge action
+            //         _currentWheelTypeToDisplay = AbilityType.Utility;
+            //         // If wheel is already open, re-populate it
+            //         if (wasAbilityWheelOpen) abilityManager.SetAbilityWheelVisible(true, _currentWheelTypeToDisplay);
+            //         Debug.Log("Switched to Utility Wheel display");
+            //     } else if (Input.GetKeyDown(KeyCode.Alpha2)) { // Replace with InputBridge action
+            //         _currentWheelTypeToDisplay = AbilityType.CombatAbility;
+            //         if (wasAbilityWheelOpen) abilityManager.SetAbilityWheelVisible(true, _currentWheelTypeToDisplay);
+            //         Debug.Log("Switched to Combat Ability Wheel display");
+            //     }
+            // }
+            // --- End Optional Wheel Switch Logic ---
+
 
             if (inputBridge.AbilitySelect.IsHeld)
             {
-                if (!wasAbilityWheelOpen) // Just opened
+                if (!wasAbilityWheelOpen) // Just pressed AbilitySelect
                 {
                     SetMajorState(CharacterState.AbilitySelection);
-                    Time.timeScale = 0.1f; // Example
-                    // abilityManager?.OpenWheel(_currentWheelType); // Tell manager to handle wheel display
+                    Time.timeScale = 0.1f;
+                    abilityManager.SetAbilityWheelVisible(true, _currentWheelTypeToDisplay); // <<< MODIFIED
                 }
-                // While open, AbilityManager's Update would handle navigation
+                // While L1 is held, URM asset + CardiniRadialInputManager handles navigation.
             }
             else // AbilitySelect not held
             {
-                if (wasAbilityWheelOpen) // Just closed
+                if (wasAbilityWheelOpen) // Just released AbilitySelect
                 {
-                    SetMajorState(CharacterState.Locomotion); // Or previous state
+                    // The URM asset's button click callback (-> HandleAbilitySelectedFromWheel)
+                    // should have handled the actual equipping and already started closing the wheel.
+                    // This block now mainly ensures state restoration if selection didn't auto-close.
+                    abilityManager?.SetAbilityWheelVisible(false, _currentWheelTypeToDisplay);
+                    SetMajorState(CharacterState.Locomotion);
                     Time.timeScale = 1f;
-                    abilityManager?.ConfirmAbilitySelection(); // Tell manager to equip selected
-                    // abilityManager?.CloseWheel();
+
+                    // The call to abilityManager.ConfirmAbilitySelection() is likely redundant
+                    // if selection happens on URM button click, as that directly calls EquipAbility.
+                    // It was more for a scenario where selection is confirmed *only* on L1 release.
+                    // abilityManager.ConfirmAbilitySelection(); 
+                    // For now, we can leave it as a log in AbilityManager to see when it's called.
                 }
             }
         }
@@ -232,7 +262,7 @@ namespace Cardini.Motion
                         highestPriority = module.Priority;
                     }
                     // Basic conflict: if same priority, first one in list wins (can refine later)
-                    else if (module.Priority == highestPriority && newActiveModule == null) 
+                    else if (module.Priority == highestPriority && newActiveModule == null)
                     {
                         newActiveModule = module;
                     }
@@ -251,7 +281,7 @@ namespace Cardini.Motion
                     _activeMovementModule.OnEnterState();
                 }
             }
-            
+
             // Update the controller's overall movement state based on the active module
             if (_activeMovementModule != null)
             {
@@ -316,9 +346,9 @@ namespace Cardini.Motion
             // Add simple reorient to world up if desired:
             else if (Settings.OrientationSharpness > 0f) // If not actively looking, gently reorient to world up
             {
-                 Vector3 currentUp = (currentRotation * Vector3.up);
-                 Vector3 smoothedUp = Vector3.Slerp(currentUp, Vector3.up, 1 - Mathf.Exp(-Settings.OrientationSharpness * deltaTime * 0.5f)); // Slower reorient
-                 currentRotation = Quaternion.FromToRotation(currentUp, smoothedUp) * currentRotation;
+                Vector3 currentUp = (currentRotation * Vector3.up);
+                Vector3 smoothedUp = Vector3.Slerp(currentUp, Vector3.up, 1 - Mathf.Exp(-Settings.OrientationSharpness * deltaTime * 0.5f)); // Slower reorient
+                currentRotation = Quaternion.FromToRotation(currentUp, smoothedUp) * currentRotation;
             }
         }
 
@@ -329,7 +359,7 @@ namespace Cardini.Motion
             {
                 _activeMovementModule.UpdateRotation(ref currentRotation, deltaTime);
             }
-            else 
+            else
             {
                 HandleStandardRotation(ref currentRotation, deltaTime); // Fallback standard rotation
             }
@@ -351,7 +381,7 @@ namespace Cardini.Motion
                     else currentVelocity += Physics.gravity * deltaTime; // Absolute fallback
                 }
             }
-            
+
             // Apply any internal velocity additions (like from jump execution)
             if (_internalVelocityAdd.sqrMagnitude > 0f)
             {
@@ -365,14 +395,14 @@ namespace Cardini.Motion
             if (Settings == null) return; // Safety first
 
             // Reset one-frame jump execution flag (the one set by ExecuteJump)
-             _jumpedThisFrameInternal = false; // This controller flag is reset each frame. AirborneModule sets its own internal one.
+            _jumpedThisFrameInternal = false; // This controller flag is reset each frame. AirborneModule sets its own internal one.
 
 
             if (_activeMovementModule != null && CurrentMajorState == CharacterState.Locomotion)
             {
                 _activeMovementModule.AfterCharacterUpdate(deltaTime);
             }
-            
+
             // This logic for jump request timeout is controller-level
             if (_jumpRequestedInternal && TimeSinceJumpRequested > Settings.JumpPreGroundingGraceTime)
             {
@@ -393,11 +423,11 @@ namespace Cardini.Motion
             {
                 _activeMovementModule.PostGroundingUpdate(deltaTime);
             }
-             // This is where TimeSinceLastAbleToJump  is reset if grounded by a module,
-             // or incremented if airborne by a module
+            // This is where TimeSinceLastAbleToJump  is reset if grounded by a module,
+            // or incremented if airborne by a module
         }
-        
-        public void BeforeCharacterUpdate(float deltaTime) 
+
+        public void BeforeCharacterUpdate(float deltaTime)
         {
             // Prime place to call ManageModuleTransitions once per KCC update cycle
             TimeSinceJumpRequested += deltaTime; // Increment this early
@@ -416,11 +446,11 @@ namespace Cardini.Motion
         public void OnGroundHit(Collider hitCollider, Vector3 hitNormal, Vector3 hitPoint, ref HitStabilityReport hitStabilityReport) { /* Delegate if module needs it */ }
         public void OnMovementHit(Collider hitCollider, Vector3 hitNormal, Vector3 hitPoint, ref HitStabilityReport hitStabilityReport) { /* Delegate if module needs it */ }
         public void ProcessHitStabilityReport(Collider hitCollider, Vector3 hitNormal, Vector3 hitPoint, Vector3 atCharacterPosition, Quaternion atCharacterRotation, ref HitStabilityReport hitStabilityReport) { /* Delegate if module needs it */ }
-        public void OnLandedInternal() 
-        { 
+        public void OnLandedInternal()
+        {
             // Called by modules upon landing
             SetJumpConsumed(false); // Allow new jump after landing
-            TimeSinceLastAbleToJump  = 0f;
+            TimeSinceLastAbleToJump = 0f;
             PlayerAnimator?.SetGrounded(true);
             PlayerAnimator?.TriggerLand();
         }
@@ -432,14 +462,34 @@ namespace Cardini.Motion
         public void SetMajorState(CharacterState newState)
         {
             if (CurrentMajorState == newState) return;
+            CharacterState oldMajorState = CurrentMajorState;
             CurrentMajorState = newState;
+
+            if (newState == CharacterState.AbilitySelection)
+            {
+                // Option A: Tell animator to go to a specific "UI Focus" or "Neutral" animation state
+                // PlayerAnimator?.SetMajorStateParameter(newState); // If you add such a param to animator
+
+                // Option B: Freeze animator speed for locomotion layer
+                if (PlayerAnimator != null && PlayerAnimator is PlayerAnimatorBridge bridge) // Need concrete type for this
+                {
+                    bridge.SetAnimatorSpeed(0f); // Need to add SetAnimatorSpeed to PlayerAnimatorBridge
+                }
+            }
+            else if (oldMajorState == CharacterState.AbilitySelection)
+            {
+                if (PlayerAnimator != null && PlayerAnimator is PlayerAnimatorBridge bridge)
+                {
+                    bridge.SetAnimatorSpeed(1f);
+                }
+            }
             // Debug.Log($"Major State changed to: {newState}");
         }
 
         public void SetMovementState(CharacterMovementState newMoveState)
         {
             if (CurrentMovementState == newMoveState) return;
-            
+
             CharacterMovementState oldMovementState = CurrentMovementState;
             CurrentMovementState = newMoveState;
             PlayerAnimator?.SetMovementState(newMoveState); // <<<--- ANIMATOR CALL
@@ -453,6 +503,16 @@ namespace Cardini.Motion
                 PlayerAnimator?.SetCrouching(false);
             }
             // Debug.Log($"Movement State changed to: {newMoveState}");
+        }
+        
+        public void RequestCloseAbilityWheel()
+        {
+            if (CurrentMajorState == CharacterState.AbilitySelection)
+            {
+                abilityManager?.SetAbilityWheelVisible(false, _currentWheelTypeBeingDisplayed);
+                SetMajorState(CharacterState.Locomotion);
+                Time.timeScale = 1f;
+            }
         }
     }
 }

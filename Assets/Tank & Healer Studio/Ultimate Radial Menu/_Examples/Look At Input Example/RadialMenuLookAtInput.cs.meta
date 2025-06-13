@@ -1,0 +1,19 @@
+fileFormatVersion: 2
+guid: 9a797d0633fb76e438e145fe2d7d6738
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 137681
+  packageName: Ultimate Radial Menu
+  packageVersion: 2.10.0
+  assetPath: Assets/Tank & Healer Studio/Ultimate Radial Menu/_Examples/Look At Input
+    Example/RadialMenuLookAtInput.cs
+  uploadId: 740946

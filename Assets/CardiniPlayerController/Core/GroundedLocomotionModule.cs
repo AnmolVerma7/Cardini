@@ -140,9 +140,10 @@ namespace Cardini.Motion
             {
                 reorientedInputDirection = Vector3.zero;
             }
-            
+
             // Target velocity is now the full desired speed IN THE PURE, REORIENTED DIRECTION.
             // This creates the speed plateaus.
+            
             Vector3 targetMovementVelocity = reorientedInputDirection * currentDesiredMaxSpeed;
             
             // If _currentGroundedSubState is Idle, currentDesiredMaxSpeed is 0, so targetMovementVelocity is zero.

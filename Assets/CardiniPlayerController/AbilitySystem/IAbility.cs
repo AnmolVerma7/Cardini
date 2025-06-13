@@ -20,7 +20,7 @@ namespace Cardini.Motion
         // Called by AbilityManager every frame an ability is equipped,
         // passing the state of the 'use' and 'cancel' buttons.
         // The ability itself decides how to react based on its ActivationType.
-        void HandleInput(InputBridge.ButtonInputState useButtonState, 
+        void HandleInput(InputBridge.ButtonInputState useButtonState,
                          InputBridge.ButtonInputState cancelButtonState); // Or pass full InputBridge
 
         // For abilities with an ongoing effect or aiming phase
@@ -31,7 +31,8 @@ namespace Cardini.Motion
 
         // For UI to show cooldown progress (0 = ready, 1 = full cooldown)
         float GetCooldownProgress(); 
-
+        
+        
         // Optional: If an ability needs to force its cancellation externally (e.g., player stunned)
         // void ForceCancel(); 
     }

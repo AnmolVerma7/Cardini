@@ -1,0 +1,19 @@
+fileFormatVersion: 2
+guid: 36222aa2ca7efa240879382693b1dd8d
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 137681
+  packageName: Ultimate Radial Menu
+  packageVersion: 2.10.0
+  assetPath: Assets/Tank & Healer Studio/Ultimate Radial Menu/_Examples/Capsule Man
+    Item Pickup/Scripts/PlayerController.cs
+  uploadId: 740946

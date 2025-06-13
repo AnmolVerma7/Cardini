@@ -16,7 +16,7 @@ MonoBehaviour:
   CrouchedCapsuleHeight: 1
   UseToggleSprint: 1
   UseToggleCrouch: 1
-  WalkThreshold: 0.01
+  WalkThreshold: 0.1
   JogThreshold: 0.5
   MaxWalkSpeed: 3
   MaxJogSpeed: 7

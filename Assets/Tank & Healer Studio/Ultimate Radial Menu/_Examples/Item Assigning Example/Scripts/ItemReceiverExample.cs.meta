@@ -1,0 +1,19 @@
+fileFormatVersion: 2
+guid: b055e39761b170b4ca6f1b344e87c3de
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 137681
+  packageName: Ultimate Radial Menu
+  packageVersion: 2.10.0
+  assetPath: Assets/Tank & Healer Studio/Ultimate Radial Menu/_Examples/Item Assigning
+    Example/Scripts/ItemReceiverExample.cs
+  uploadId: 740946

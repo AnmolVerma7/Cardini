@@ -13,7 +13,7 @@ namespace Cardini.Motion
         [Header("Input Options")]
         public bool UseToggleSprint = false;
         public bool UseToggleCrouch = false;
-        [Range(0.01f, 0.3f)] public float WalkThreshold = 0.2f;
+        [Range(0.0001f, 0.3f)] public float WalkThreshold = 0.2f;
         [Range(0.31f, 0.9f)] public float JogThreshold = 0.7f;
 
         [Header("Movement Speeds")]
@@ -39,6 +39,7 @@ namespace Cardini.Motion
         public float JumpScalableForwardSpeed_IdleWalk = 0f;
         public float JumpScalableForwardSpeed_Jog = 1f;
         public float JumpScalableForwardSpeed_Sprint = 2f;
+
         [Tooltip("How long before landing a jump input is accepted (Jump Buffering)")]
         public float JumpPreGroundingGraceTime = 0.1f;
         [Tooltip("How long after leaving ground a jump is still possible (Coyote Time)")]

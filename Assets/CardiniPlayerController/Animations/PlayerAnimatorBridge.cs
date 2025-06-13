@@ -61,6 +61,11 @@ namespace Cardini.Motion
             if (enabled) animator.SetInteger(_hashMovementState, (int)movementState);
         }
 
+        public void SetAnimatorSpeed(float speed)
+        {
+            if (enabled && animator != null) animator.speed = speed;
+        }
+
         public void TriggerJump()
         {
             if (enabled && animator != null) animator.SetTrigger(_hashJump);
