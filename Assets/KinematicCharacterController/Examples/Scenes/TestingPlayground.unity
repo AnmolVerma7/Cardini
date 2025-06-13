@@ -44225,8 +44225,7 @@ MonoBehaviour:
   - {fileID: 11400000, guid: 969a36899c1d5e34ca7b9f2504c1877e, type: 2}
   utilityWheelConfiguration:
   - {fileID: 11400000, guid: 969a36899c1d5e34ca7b9f2504c1877e, type: 2}
-  combatWheelConfiguration:
-  - {fileID: 11400000, guid: 969a36899c1d5e34ca7b9f2504c1877e, type: 2}
+  combatWheelConfiguration: []
 --- !u!114 &6607685709280838961
 MonoBehaviour:
   m_ObjectHideFlags: 0
