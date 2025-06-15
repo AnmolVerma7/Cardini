@@ -207,30 +207,21 @@ namespace Cardini.Motion
 
             if (inputBridge.AbilitySelect.IsHeld)
             {
-                if (!wasAbilityWheelOpen) // Just pressed AbilitySelect
+                if (!wasAbilityWheelOpen) 
                 {
                     SetMajorState(CharacterState.AbilitySelection);
                     Time.timeScale = 0.1f;
-                    abilityManager.SetAbilityWheelVisible(true, _currentWheelTypeToDisplay); // <<< MODIFIED
+                    abilityManager.SetAbilityWheelVisible(true); // <<< MODIFIED: No longer pass wheelType
                 }
-                // While L1 is held, URM asset + CardiniRadialInputManager handles navigation.
             }
-            else // AbilitySelect not held
+            else 
             {
-                if (wasAbilityWheelOpen) // Just released AbilitySelect
+                if (wasAbilityWheelOpen) 
                 {
-                    // The URM asset's button click callback (-> HandleAbilitySelectedFromWheel)
-                    // should have handled the actual equipping and already started closing the wheel.
-                    // This block now mainly ensures state restoration if selection didn't auto-close.
-                    abilityManager?.SetAbilityWheelVisible(false, _currentWheelTypeToDisplay);
-                    SetMajorState(CharacterState.Locomotion);
+                    abilityManager.SetAbilityWheelVisible(false); // <<< MODIFIED
+                    SetMajorState(CharacterState.Locomotion); 
                     Time.timeScale = 1f;
-
-                    // The call to abilityManager.ConfirmAbilitySelection() is likely redundant
-                    // if selection happens on URM button click, as that directly calls EquipAbility.
-                    // It was more for a scenario where selection is confirmed *only* on L1 release.
-                    // abilityManager.ConfirmAbilitySelection(); 
-                    // For now, we can leave it as a log in AbilityManager to see when it's called.
+                    // abilityManager.ConfirmAbilitySelection(); // This call remains, acts as notification
                 }
             }
         }
@@ -509,7 +500,7 @@ namespace Cardini.Motion
         {
             if (CurrentMajorState == CharacterState.AbilitySelection)
             {
-                abilityManager?.SetAbilityWheelVisible(false, _currentWheelTypeBeingDisplayed);
+                abilityManager?.SetAbilityWheelVisible(false); // <<< MODIFIED
                 SetMajorState(CharacterState.Locomotion);
                 Time.timeScale = 1f;
             }

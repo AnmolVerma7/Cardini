@@ -165,12 +165,12 @@ namespace Cardini.Motion
         }
 
         public override void PostGroundingUpdate(float deltaTime)
-{
-    // This module is active only when airborne.
-    if (Motor.GroundingStatus.IsStableOnGround)
-    {
-        Controller.OnLandedInternal(); 
-    }
-}
+        {
+            // This module is active only when airborne.
+            if (Motor.GroundingStatus.IsStableOnGround)
+            {
+                Controller.OnLandedInternal(); 
+            }
+        }
     }
 }

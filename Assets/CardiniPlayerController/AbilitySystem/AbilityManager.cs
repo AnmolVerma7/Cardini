@@ -22,8 +22,8 @@ namespace Cardini.Motion
         
         // Runtime Data
         private List<AbilitySO> _unlockedAbilities = new List<AbilitySO>();
-        [SerializeField] private AbilitySO[] utilityWheelConfiguration = new AbilitySO[4]; 
-        [SerializeField] private AbilitySO[] combatWheelConfiguration = new AbilitySO[4];  
+[Tooltip("Configuration for the 8 slots on the main ability wheel. Player can assign any unlocked Utility or Combat ability here.")]
+        [SerializeField] private AbilitySO[] configuredWheelSlots = new AbilitySO[8]; // Player's current wheel setup
 
         private IAbility _currentlyEquippedAbilityInstance;
         private AbilitySO _currentlyEquippedAbilityData;
@@ -48,26 +48,27 @@ namespace Cardini.Motion
         
         private void SetupInitialWheelConfiguration() // For testing
         {
-            int uIndex = 0, cIndex = 0;
+            int slotIndex = 0;
             foreach (var abilitySO in _unlockedAbilities)
             {
-                if (abilitySO.Type == AbilityType.Utility && uIndex < utilityWheelConfiguration.Length)
-                    utilityWheelConfiguration[uIndex++] = abilitySO;
-                else if (abilitySO.Type == AbilityType.CombatAbility && cIndex < combatWheelConfiguration.Length)
-                    combatWheelConfiguration[cIndex++] = abilitySO;
+                if (slotIndex < configuredWheelSlots.Length)
+                {
+                    configuredWheelSlots[slotIndex++] = abilitySO;
+                }
+                else break; 
             }
+            Debug.Log("Initial single wheel configuration populated for testing.");
         }
 
-        public void SetAbilityWheelVisible(bool visible, AbilityType wheelTypeToShow)
+        public void SetAbilityWheelVisible(bool visible) 
         {
             if (visible)
             {
-                _currentWheelTypeBeingDisplayed = wheelTypeToShow;
                 if (!string.IsNullOrEmpty(abilityWheelName))
                 {
-                    PopulateRadialMenuWithConfiguredAbilities();
+                    PopulateSingleRadialMenu(); // Always populates the single main wheel
                     UltimateRadialMenu.Enable(abilityWheelName);
-                    // Debug.Log($"Showing Radial Menu: {abilityWheelName} with {wheelTypeToShow} abilities.");
+                    // Debug.Log($"Showing Radial Menu: {abilityWheelName}");
                 }
             }
             else
@@ -80,32 +81,31 @@ namespace Cardini.Motion
             }
         }
 
-        void PopulateRadialMenuWithConfiguredAbilities()
+        void PopulateSingleRadialMenu() // Renamed and simplified
         {
             if (string.IsNullOrEmpty(abilityWheelName)) return;
             UltimateRadialMenu.ClearMenu(abilityWheelName); 
 
-            AbilitySO[] abilitiesToDisplay = (_currentWheelTypeBeingDisplayed == AbilityType.Utility) 
-                                             ? utilityWheelConfiguration 
-                                             : combatWheelConfiguration;
-
-            foreach (AbilitySO abilitySO in abilitiesToDisplay)
+            // Display abilities directly from the configuredWheelSlots
+            foreach (AbilitySO abilitySO in configuredWheelSlots)
             {
-                if (abilitySO == null || !_unlockedAbilities.Contains(abilitySO)) continue;
+                if (abilitySO == null) // Allow empty slots in the configuration
+                {
+                    // Optionally register an empty/disabled button for this slot if URM supports it easily,
+                    // or just skip it, and URM will only show populated slots.
+                    // For now, let's skip to only show non-null abilities.
+                    continue;
+                }
+                
+                if (!_unlockedAbilities.Contains(abilitySO)) continue; // Only show unlocked abilities
 
                 UltimateRadialButtonInfo buttonInfo = new UltimateRadialButtonInfo();
-                {
-                    buttonInfo.UpdateName(abilitySO.AbilityName); // Internal name for the button
-                    // buttonInfo.name = abilitySO.AbilityName; // Display name in the wheel
-                    buttonInfo.UpdateIcon(abilitySO.Icon);
-                };
-                buttonInfo.UpdateText(abilitySO.AbilityName);
-               
-                // buttonInfo.description = abilitySO.Description; // If URM supports it
-                // buttonInfo.key = abilitySO.name; // If URM uses a 'key' for identification
+                buttonInfo.name = abilitySO.AbilityName; 
+                buttonInfo.icon = abilitySO.Icon;
+                buttonInfo.key = abilitySO.AbilityName; // Or .text, .label (check URM docs)
                                 
                 UltimateRadialMenu.RegisterButton(abilityWheelName, 
-                    () => HandleAbilitySelectedFromWheel(abilitySO), // This lambda is called on URM interaction
+                    () => HandleAbilitySelectedFromWheel(abilitySO), 
                     buttonInfo);
             }
         }
@@ -114,19 +114,13 @@ namespace Cardini.Motion
         // Called by the lambda in RegisterButton (triggered by URM's internal click/release logic).
         private void HandleAbilitySelectedFromWheel(AbilitySO selectedAbilitySO)
         {
-            // Debug.Log($"HandleAbilitySelectedFromWheel CALLED with: {selectedAbilitySO?.AbilityName ?? "null"}");
             if (selectedAbilitySO != null)
             {
                 EquipAbility(selectedAbilitySO);
-
-                // Automatically close wheel and return control after selection.
                 if (cardiniController != null)
                 {
-                    // Tell CardiniController to go back to Locomotion and restore time.
-                    // SetAbilityWheelVisible(false,...) will be called by CardiniController's HandleMajorStateInputs
-                    // when AbilitySelect button is released.
-                    // However, since selection *immediately* closes the wheel, we might do it here too.
-                    cardiniController.RequestCloseAbilityWheel(); // New method in CardiniController
+                    // Tell CardiniController to close the wheel (it handles state and time scale)
+                    cardiniController.RequestCloseAbilityWheel();
                 }
             }
         }
@@ -148,9 +142,7 @@ namespace Cardini.Motion
         // So, this method might just confirm the wheel should be hidden if it wasn't already by a direct click.
         public void ConfirmAbilitySelection() 
         {
-            // Debug.Log("AbilityManager: ConfirmAbilitySelection (L1 released). Current Equipped: " + (CurrentlyEquippedAbility != null ? CurrentlyEquippedAbility.AbilityName : "None"));
-            // The actual equipping is now handled by HandleAbilitySelectedFromWheel triggered by URM.
-            // CardiniController will call SetAbilityWheelVisible(false) when L1 is released.
+             Debug.Log("AbilityManager: ConfirmAbilitySelection (L1 released). Equipped: " + (CurrentlyEquippedAbility != null ? CurrentlyEquippedAbility.AbilityName : "None"));
         }
 
         public void EquipAbility(AbilitySO abilityData)
