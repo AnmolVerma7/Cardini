@@ -29,7 +29,6 @@ namespace Cardini.Motion
         private AbilitySO _currentlyEquippedAbilityData;
         public AbilitySO CurrentlyEquippedAbility => _currentlyEquippedAbilityData; // For DebugUI
         private Dictionary<AbilitySO, float> _abilityCooldownTimers = new Dictionary<AbilitySO, float>();
-        private AbilityType _currentWheelTypeBeingDisplayed = AbilityType.Utility; 
 
         void Awake()
         {

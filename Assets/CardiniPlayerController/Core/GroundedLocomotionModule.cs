@@ -17,7 +17,7 @@ namespace Cardini.Motion
         {
             get => Controller.IsCrouching;
             set => Controller.SetCrouchingState(value); // Request Controller to change physical crouch
-        } 
+        }
         private bool ShouldBeCrouching => Controller.ShouldBeCrouching; // Read from Controller
 
         public override int Priority => 0; // Base locomotion module
@@ -29,8 +29,9 @@ namespace Cardini.Motion
             // This module can enter if the character is on stable ground
             // AND the major state is Locomotion
             // AND no higher priority module (like a vault or slide starting from ground) wants to run.
-            return Motor.GroundingStatus.IsStableOnGround && 
-                   Controller.CurrentMajorState == CharacterState.Locomotion;
+            return Motor.GroundingStatus.IsStableOnGround &&
+                   Controller.CurrentMajorState == CharacterState.Locomotion &&
+                    CommonChecks();
         }
 
         public override void OnEnterState()
@@ -40,7 +41,7 @@ namespace Cardini.Motion
             Controller.TimeSinceLastAbleToJump = 0f; // Reset coyote timer when grounded
             if (!Controller._jumpedThisFrameInternal) // If we didn't just land from a jump that WE initiated
             {
-                 Controller.ConsumeJumpRequest(); // Clear any buffered jump request if we land without jumping
+                Controller.ConsumeJumpRequest(); // Clear any buffered jump request if we land without jumping
             }
             UpdateGroundedSubState(Controller.MoveInputVector.magnitude);
         }
@@ -64,7 +65,7 @@ namespace Cardini.Motion
             if (Settings == null) return;
 
             // Use processed move input from Controller
-            float inputMagnitude = Controller.MoveInputVector.magnitude; 
+            float inputMagnitude = Controller.MoveInputVector.magnitude;
             UpdateGroundedSubState(inputMagnitude); // Update current sub-state (Idle, Walk, Jog, etc.)
 
             float currentDesiredMaxSpeed;
@@ -120,18 +121,18 @@ namespace Cardini.Motion
 
 
             PlayerAnimator?.SetLocomotionSpeeds(normalizedSpeedTier, velocityX, velocityZ);
-            
+
             // --- Ground Movement Logic ---
             float currentVelocityMagnitude = currentVelocity.magnitude;
             Vector3 effectiveGroundNormal = Motor.GroundingStatus.GroundNormal;
             currentVelocity = Motor.GetDirectionTangentToSurface(currentVelocity, effectiveGroundNormal) * currentVelocityMagnitude;
 
             // Get the PURE DIRECTION of input from the controller
-            Vector3 inputDirection = Controller.MoveInputVector.normalized; 
+            Vector3 inputDirection = Controller.MoveInputVector.normalized;
 
             // Reorient the desired input direction onto the ground plane
-            Vector3 reorientedInputDirection = inputDirection; 
-            if (Controller.MoveInputVector.sqrMagnitude > 0.01f) 
+            Vector3 reorientedInputDirection = inputDirection;
+            if (Controller.MoveInputVector.sqrMagnitude > 0.01f)
             {
                 Vector3 inputRight = Vector3.Cross(inputDirection, Motor.CharacterUp);
                 reorientedInputDirection = Vector3.Cross(effectiveGroundNormal, inputRight).normalized;
@@ -143,9 +144,9 @@ namespace Cardini.Motion
 
             // Target velocity is now the full desired speed IN THE PURE, REORIENTED DIRECTION.
             // This creates the speed plateaus.
-            
+
             Vector3 targetMovementVelocity = reorientedInputDirection * currentDesiredMaxSpeed;
-            
+
             // If _currentGroundedSubState is Idle, currentDesiredMaxSpeed is 0, so targetMovementVelocity is zero.
             // The Lerp will then smoothly bring currentVelocity to zero.
 
@@ -154,10 +155,13 @@ namespace Cardini.Motion
             // --- Handle Jump Initiation ---
             if (Controller.IsJumpRequested())
             {
+                // Debug.Log($"[Grounded] Jump Requested! Current SubState: {_currentGroundedSubState}, CurrentControllerState: {Controller.CurrentMovementState}");
+                bool isJumpAllowedByMatrix = Controller.CanTransitionToState(CharacterMovementState.Jumping);
                 bool canGroundJump = (Settings.AllowJumpingWhenSliding ? Motor.GroundingStatus.FoundAnyGround : Motor.GroundingStatus.IsStableOnGround);
-                if (!Controller.IsJumpConsumed() && canGroundJump)
+                if (!Controller.IsJumpConsumed() && canGroundJump && isJumpAllowedByMatrix)
                 {
-                    float jumpSpeedTierForThisJump = Controller.CurrentSpeedTierForJump; 
+                    // Debug.Log($"[Grounded] Jump Execution ALLOWED! Matrix allowed: {isJumpAllowedByMatrix}. Consumed: {Controller.IsJumpConsumed()}.");
+                    float jumpSpeedTierForThisJump = Controller.CurrentSpeedTierForJump;
                     float actualJumpUpSpeed = Settings.JumpUpSpeed_IdleWalk;
                     float actualJumpForwardSpeed = Settings.JumpScalableForwardSpeed_IdleWalk;
 
@@ -171,8 +175,13 @@ namespace Cardini.Motion
                         actualJumpUpSpeed = Settings.JumpUpSpeed_Jog;
                         actualJumpForwardSpeed = Settings.JumpScalableForwardSpeed_Jog;
                     }
-                    
+
                     Controller.ExecuteJump(actualJumpUpSpeed, actualJumpForwardSpeed, Controller.MoveInputVector);
+                }
+                else // If jump was requested but blocked by matrix/conditions or already consumed
+                {
+                    // Debug.Log($"[Grounded] Jump Execution BLOCKED! Consumed: {Controller.IsJumpConsumed()}, GroundJump: {canGroundJump}, Matrix Allowed: {isJumpAllowedByMatrix}. Consuming request.");
+                    Controller.ConsumeJumpRequest(); // Consume it immediately, whether it's matrix, conditions, or already consumed.
                 }
             }
         }
@@ -206,10 +215,10 @@ namespace Cardini.Motion
                 // if (Controller.MeshRoot)
                 //     Controller.MeshRoot.localScale = new Vector3(Controller.MeshRoot.localScale.x, Settings.CrouchedCapsuleHeight / Settings.DefaultCapsuleHeight, Controller.MeshRoot.localScale.z);
             }
-            
+
             // Update the sub-state after all physics and crouch changes
             // This ensures the _currentGroundedSubState reflects the true physical state (e.g. actually crouching)
-            UpdateGroundedSubState(Controller.MoveInputVector.magnitude); 
+            UpdateGroundedSubState(Controller.MoveInputVector.magnitude);
         }
 
         public override void PostGroundingUpdate(float deltaTime)
@@ -220,43 +229,67 @@ namespace Cardini.Motion
                 Controller.OnLandedInternal(); // Tell controller we landed
             }
         }
-
         private void UpdateGroundedSubState(float inputMagnitude)
         {
-            // Determine and set the specific grounded sub-state (Idle, Walking, etc.)
-            // This also updates the Controller's CurrentSpeedTierForJump for the next potential jump
             CharacterMovementState newSubState;
-            if (IsCrouching) // Prioritize crouching
-            {
-                newSubState = CharacterMovementState.Crouching;
-                Controller.CurrentSpeedTierForJump = Settings.MaxCrouchSpeed;
-            }
-            else if (IsSprinting) // Then sprinting
+            CharacterMovementState oldSubState = _currentGroundedSubState;
+
+            // Use the desired input states from CardiniController
+            bool wantsToSprint = Controller.IsSprinting;
+            bool wantsToCrouch = Controller.ShouldBeCrouching;
+            bool isPhysicallyCrouching = Controller.IsCrouching; // The current physical state of the capsule
+
+            // --- Determine the new desired CharacterMovementState based on input priority ---
+            // (This now reflects what the player *intends* to do, overriding crouch with sprint)
+            if (wantsToSprint)
             {
                 newSubState = CharacterMovementState.Sprinting;
-                Controller.CurrentSpeedTierForJump = Settings.MaxSprintSpeed;
+            }
+            else if (wantsToCrouch)
+            {
+                newSubState = CharacterMovementState.Crouching;
             }
             else if (inputMagnitude > Settings.JogThreshold)
             {
                 newSubState = CharacterMovementState.Jogging;
-                Controller.CurrentSpeedTierForJump = Settings.MaxJogSpeed;
             }
             else if (inputMagnitude > Settings.WalkThreshold)
             {
                 newSubState = CharacterMovementState.Walking;
-                Controller.CurrentSpeedTierForJump = Settings.MaxWalkSpeed;
             }
             else
             {
                 newSubState = CharacterMovementState.Idle;
-                Controller.CurrentSpeedTierForJump = 0f; // For idle jumps
             }
 
+            // --- Apply speed tier based on this new desired state ---
+            // The physical capsule resizing will happen in AfterCharacterUpdate
+            if (newSubState == CharacterMovementState.Crouching)
+            {
+                Controller.CurrentSpeedTierForJump = Settings.MaxCrouchSpeed;
+            }
+            else if (newSubState == CharacterMovementState.Sprinting)
+            {
+                Controller.CurrentSpeedTierForJump = Settings.MaxSprintSpeed;
+            }
+            else if (newSubState == CharacterMovementState.Jogging)
+            {
+                Controller.CurrentSpeedTierForJump = Settings.MaxJogSpeed;
+            }
+            else if (newSubState == CharacterMovementState.Walking)
+            {
+                Controller.CurrentSpeedTierForJump = Settings.MaxWalkSpeed;
+            }
+            else // Idle
+            {
+                Controller.CurrentSpeedTierForJump = 0f;
+            }
+
+            // --- Final Assignment of _currentGroundedSubState ---
             if (_currentGroundedSubState != newSubState)
             {
+                // Debug.Log($"[Grounded] SubState Change: {oldSubState} -> {newSubState}. IsSprinting: {wantsToSprint}, ShouldBeCrouching: {wantsToCrouch}, IsPhysicallyCrouching: {isPhysicallyCrouching}, InputMagnitude: {inputMagnitude}");
                 _currentGroundedSubState = newSubState;
-                // The Controller's main _currentMovementState will be updated by CardiniController
-                // based on this module's AssociatedPrimaryMovementState.
             }
         }
     }

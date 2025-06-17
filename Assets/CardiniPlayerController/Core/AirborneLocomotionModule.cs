@@ -8,7 +8,7 @@ namespace Cardini.Motion
     {
         private bool _initiatedByJumpThisFrame = false; // Was this airborne state started by a jump this activation?
 
-        public override int Priority => 0; // Same base priority as Grounded for now
+        public override int Priority => 1; // Same base priority as Grounded for now
 
         public override CharacterMovementState AssociatedPrimaryMovementState
         {
@@ -28,7 +28,8 @@ namespace Cardini.Motion
             // This module can enter if the character is NOT on stable ground
             // AND the major state is Locomotion
             return !Motor.GroundingStatus.IsStableOnGround &&
-                   Controller.CurrentMajorState == CharacterState.Locomotion;
+                   Controller.CurrentMajorState == CharacterState.Locomotion &&
+                   CommonChecks();
         }
 
         public override void OnEnterState()

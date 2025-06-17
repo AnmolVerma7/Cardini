@@ -12,6 +12,7 @@ namespace Cardini.Motion
         public InputBridge inputBridge;
         public BaseLocomotionSettingsSO Settings;
         public AbilityManager abilityManager;
+        public StateTransitionSO transitionMatrix;
 
         [Header("Object References")]
         public Transform MeshRoot; // Modules might need access for scaling etc.
@@ -65,10 +66,6 @@ namespace Cardini.Motion
         private bool _sprintToggleActive = false;
         private bool _crouchToggleActive = false;
 
-        [Header("Abilites")]
-        private AbilityType _currentWheelTypeToDisplay = AbilityType.Utility;
-        private AbilityType _currentWheelTypeBeingDisplayed;
-
         private void Awake()
         {
             if (Motor == null) Motor = GetComponent<KinematicCharacterMotor>();
@@ -100,6 +97,15 @@ namespace Cardini.Motion
             // Sort modules by priority (higher priority first)
             movementModules = movementModules.OrderByDescending(m => m.Priority).ToList();
 
+            if (transitionMatrix != null)
+            {
+                transitionMatrix.Initialize();
+            }
+            else
+            {
+                Debug.LogWarning("CardiniController: Transition Matrix SO not assigned! All state transitions will be allowed by default.", this);
+            }
+            // <--- ADD THIS BLOCK END
 
             SetMajorState(CharacterState.Locomotion);
             // Initial movement state will be determined by module activation
@@ -115,8 +121,8 @@ namespace Cardini.Motion
 
         public void SetControllerInputs(ref ControllerInputs inputs) // Called by CardiniPlayer
         {
-            // Process major state input (e.g., ability wheel) first
-            HandleMajorStateInputs(); // New method to handle ability wheel, etc.
+
+            HandleMajorStateInputs();
 
             if (CurrentMajorState != CharacterState.Locomotion)
             {
@@ -159,25 +165,63 @@ namespace Cardini.Motion
                 _jumpRequestedInternal = true;
             }
 
-            if (Settings.UseToggleSprint)
+            bool rawSprintInputHeld = inputBridge.Sprint.IsHeld;
+            bool rawSprintInputPressed = inputBridge.Sprint.IsPressed;
+            bool rawCrouchInputHeld = inputBridge.Crouch.IsHeld;
+            bool rawCrouchInputPressed = inputBridge.Crouch.IsPressed;
+
+            // --- 1. Update internal toggle flags based on button presses (Independent flips) ---
+            // Toggles always flip their internal state when pressed, regardless of other inputs.
+            // The dominance will be applied when determining the *final* IsSprinting/ShouldBeCrouching.
+            if (Settings.UseToggleSprint && rawSprintInputPressed)
             {
-                if (inputBridge.Sprint.IsPressed) _sprintToggleActive = !_sprintToggleActive;
-                IsSprinting = _sprintToggleActive && MoveInputVector.sqrMagnitude > 0.01f;
+                _sprintToggleActive = !_sprintToggleActive;
             }
-            else
+            if (Settings.UseToggleCrouch && rawCrouchInputPressed)
             {
-                IsSprinting = inputBridge.Sprint.IsHeld;
+                _crouchToggleActive = !_crouchToggleActive;
             }
 
-            if (Settings.UseToggleCrouch)
+            // --- 2. Determine desired states (from toggles or holds) ---
+            bool desiredSprintFromInput = Settings.UseToggleSprint ? _sprintToggleActive : rawSprintInputHeld;
+            bool desiredCrouchFromInput = Settings.UseToggleCrouch ? _crouchToggleActive : rawCrouchInputHeld;
+
+
+            // --- 3. Apply Mutual Exclusion / Input Priority to FINAL IsSprinting & ShouldBeCrouching ---
+            // Sprint (with movement) has highest priority.
+            if (desiredSprintFromInput && MoveInputVector.sqrMagnitude > 0.01f)
             {
-                if (inputBridge.Crouch.IsPressed) _crouchToggleActive = !_crouchToggleActive;
-                ShouldBeCrouching = _crouchToggleActive;
+                IsSprinting = true;
+                ShouldBeCrouching = false; // Sprint overrides Crouch
             }
+            // If not sprinting, then check for crouch.
+            else if (desiredCrouchFromInput)
+            {
+                ShouldBeCrouching = true;
+                IsSprinting = false; // Crouch overrides Sprint IF Sprint wasn't already active from its own input.
+            }
+            // If neither Sprint nor Crouch are actively desired, default to false.
             else
             {
-                ShouldBeCrouching = inputBridge.Crouch.IsHeld;
+                IsSprinting = false;
+                ShouldBeCrouching = false;
             }
+
+
+            if (IsSprinting && Settings.UseToggleCrouch && _crouchToggleActive)
+            {
+                _crouchToggleActive = false; // Turn off the crouch toggle because sprint is now active and dominant.
+            }
+
+            else if (ShouldBeCrouching && Settings.UseToggleSprint && _sprintToggleActive)
+            {
+                _sprintToggleActive = false;
+            }
+
+
+            // --- Synchronize internal toggle flags for hold modes (as before, still good practice) ---
+            if (!Settings.UseToggleSprint) _sprintToggleActive = IsSprinting;
+            if (!Settings.UseToggleCrouch) _crouchToggleActive = ShouldBeCrouching;
 
             PlayerAnimator?.SetCrouching(IsCrouching);
         }
@@ -188,38 +232,21 @@ namespace Cardini.Motion
 
             bool wasAbilityWheelOpen = (CurrentMajorState == CharacterState.AbilitySelection);
 
-            // --- Optional: Add logic here to switch _currentWheelTypeToDisplay ---
-            // Example: Press a specific button while AbilitySelect is held to switch wheel type
-            // if (inputBridge.AbilitySelect.IsHeld) {
-            //     if (Input.GetKeyDown(KeyCode.Alpha1)) { // Replace with InputBridge action
-            //         _currentWheelTypeToDisplay = AbilityType.Utility;
-            //         // If wheel is already open, re-populate it
-            //         if (wasAbilityWheelOpen) abilityManager.SetAbilityWheelVisible(true, _currentWheelTypeToDisplay);
-            //         Debug.Log("Switched to Utility Wheel display");
-            //     } else if (Input.GetKeyDown(KeyCode.Alpha2)) { // Replace with InputBridge action
-            //         _currentWheelTypeToDisplay = AbilityType.CombatAbility;
-            //         if (wasAbilityWheelOpen) abilityManager.SetAbilityWheelVisible(true, _currentWheelTypeToDisplay);
-            //         Debug.Log("Switched to Combat Ability Wheel display");
-            //     }
-            // }
-            // --- End Optional Wheel Switch Logic ---
-
-
             if (inputBridge.AbilitySelect.IsHeld)
             {
-                if (!wasAbilityWheelOpen) 
+                if (!wasAbilityWheelOpen)
                 {
                     SetMajorState(CharacterState.AbilitySelection);
                     Time.timeScale = 0.1f;
                     abilityManager.SetAbilityWheelVisible(true); // <<< MODIFIED: No longer pass wheelType
                 }
             }
-            else 
+            else
             {
-                if (wasAbilityWheelOpen) 
+                if (wasAbilityWheelOpen)
                 {
                     abilityManager.SetAbilityWheelVisible(false); // <<< MODIFIED
-                    SetMajorState(CharacterState.Locomotion); 
+                    SetMajorState(CharacterState.Locomotion);
                     Time.timeScale = 1f;
                     // abilityManager.ConfirmAbilitySelection(); // This call remains, acts as notification
                 }
@@ -247,6 +274,16 @@ namespace Cardini.Motion
             {
                 if (module.CanEnterState()) // Module determines its own viability
                 {
+                    // <--- ADD THIS BLOCK START
+                    // Check if transition to this module's primary state is allowed by the matrix
+                    if (transitionMatrix != null &&
+                        !transitionMatrix.IsAllowed(CurrentMovementState, module.AssociatedPrimaryMovementState))
+                    {
+                        // Debug.Log($"Transition from {CurrentMovementState} to {module.AssociatedPrimaryMovementState} blocked by matrix.");
+                        continue; // Skip this candidate module, it's not allowed
+                    }
+                    // <--- ADD THIS BLOCK END
+
                     if (module.Priority > highestPriority)
                     {
                         newActiveModule = module;
@@ -346,6 +383,16 @@ namespace Cardini.Motion
         // --- ICharacterController Implementation (Delegation to Active Module) ---
         public void UpdateRotation(ref Quaternion currentRotation, float deltaTime)
         {
+            // <--- MODIFIED BLOCK START
+            // If the active module requests to lock rotation, do not allow other modules to update it.
+            if (_activeMovementModule != null && _activeMovementModule.LocksRotation)
+            {
+                // Rotation is locked by the active module.
+                // The active module is responsible for setting `currentRotation` if it needs to.
+                // We return here to prevent the default delegation.
+                return;
+            }
+            // <--- MODIFIED BLOCK END
             if (_activeMovementModule != null && CurrentMajorState == CharacterState.Locomotion)
             {
                 _activeMovementModule.UpdateRotation(ref currentRotation, deltaTime);
@@ -358,7 +405,18 @@ namespace Cardini.Motion
 
         public void UpdateVelocity(ref Vector3 currentVelocity, float deltaTime)
         {
-            ManageModuleTransitions(); // Call this once per frame
+            // ManageModuleTransitions(); // Call this once per frame
+
+            // <--- MODIFIED BLOCK START
+            // If the active module requests to lock velocity, do not allow other modules to update it.
+            if (_activeMovementModule != null && _activeMovementModule.LocksVelocity)
+            {
+                // Velocity is locked by the active module.
+                // The active module is responsible for setting `currentVelocity` if it needs to.
+                // We proceed to `_internalVelocityAdd` but no other module contributes to velocity here.
+            }
+            else // ONLY apply module velocity if not locked
+                 // <--- MODIFIED BLOCK END
 
             if (_activeMovementModule != null && CurrentMajorState == CharacterState.Locomotion)
             {
@@ -495,7 +553,7 @@ namespace Cardini.Motion
             }
             // Debug.Log($"Movement State changed to: {newMoveState}");
         }
-        
+
         public void RequestCloseAbilityWheel()
         {
             if (CurrentMajorState == CharacterState.AbilitySelection)
@@ -504,6 +562,18 @@ namespace Cardini.Motion
                 SetMajorState(CharacterState.Locomotion);
                 Time.timeScale = 1f;
             }
+        }
+        
+        /// <summary>
+        /// Allows a module to query if a transition from the current state to a target state is allowed by the matrix.
+        /// </summary>
+        public bool CanTransitionToState(CharacterMovementState targetState)
+        {
+            if (transitionMatrix == null)
+            {
+                return true; // Default to allowed if no matrix is assigned (warned in Awake)
+            }
+            return transitionMatrix.IsAllowed(CurrentMovementState, targetState);
         }
     }
 }
