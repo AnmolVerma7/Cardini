@@ -1,4 +1,3 @@
-// AirborneLocomotionModule.cs
 using UnityEngine;
 using KinematicCharacterController;
 
@@ -56,11 +55,11 @@ namespace Cardini.Motion
         }
 
         public override void OnExitState()
-{
-    _initiatedByJumpThisFrame = false;
-    // Make sure we clear any lingering jump states in the animator
-    PlayerAnimator?.SetGrounded(true);
-}
+        {
+            _initiatedByJumpThisFrame = false;
+            // Make sure we clear any lingering jump states in the animator
+            PlayerAnimator?.SetGrounded(true);
+        }
 
         public override void UpdateRotation(ref Quaternion currentRotation, float deltaTime)
         {
@@ -69,11 +68,51 @@ namespace Cardini.Motion
         }
 
         public override void UpdateVelocity(ref Vector3 currentVelocity, float deltaTime)
+        
         {
             if (Settings == null) return;
+            // <--- ADD THIS BLOCK START: Double Jump Logic
+            // Handle double jump
+            if (Settings.AllowDoubleJump)
+            {
+                // Conditions for double jump: jump requested, first jump consumed, double jump not yet consumed, and character is airborne
+                if (Controller.IsJumpRequested() && Controller.IsJumpConsumed() && !Controller.IsDoubleJumpConsumed() && !Motor.GroundingStatus.FoundAnyGround)
+                {
+                    Debug.Log($"[Airborne] DOUBLE JUMP EXECUTION ALLOWED! Current SpeedTier: {Controller.CurrentSpeedTierForJump}");
+
+                    float actualJumpUpSpeed;
+                    float actualJumpForwardSpeed;
+
+                    // Tiered double jump speeds based on speed before first jump (LastGroundedSpeedTier)
+                    if (Controller.LastGroundedSpeedTier >= Settings.MaxSprintSpeed * 0.9f)
+                    {
+                        actualJumpUpSpeed = Settings.DoubleJumpUpSpeed_Sprint;
+                        actualJumpForwardSpeed = Settings.DoubleJumpScalableForwardSpeed_Sprint;
+                    }
+                    else if (Controller.LastGroundedSpeedTier >= Settings.MaxJogSpeed * 0.9f)
+                    {
+                        actualJumpUpSpeed = Settings.DoubleJumpUpSpeed_Jog;
+                        actualJumpForwardSpeed = Settings.DoubleJumpScalableForwardSpeed_Jog;
+                    }
+                    else // Idle/Walk speed for double jump
+                    {
+                        actualJumpUpSpeed = Settings.DoubleJumpUpSpeed_IdleWalk;
+                        actualJumpForwardSpeed = Settings.DoubleJumpScalableForwardSpeed_IdleWalk;
+                    }
+
+                    // Tell controller to execute the jump mechanics (this will ForceUnground, add velocity, consume jump request)
+                    Controller.ExecuteJump(actualJumpUpSpeed, actualJumpForwardSpeed, Controller.MoveInputVector);
+                    
+                    Controller.SetDoubleJumpConsumed(true); // Mark double jump as consumed
+                    // Controller.SetJumpedThisFrame(true); // ExecuteJump already sets _jumpExecutionIntentInternal which leads to this.
+
+                    Controller.SetMovementState(CharacterMovementState.Jumping); // Explicitly set to Jumping state
+                }
+            }
+            // <--- ADD THIS BLOCK END
 
             // --- Handle Coyote Jump Initiation (if requested and conditions met) ---
-            if (Controller.IsJumpRequested() && 
+            if (Controller.IsJumpRequested() &&
                 !Controller.IsJumpConsumed() && // Haven't already jumped in this airtime
                 Controller.TimeSinceLastAbleToJump > 0f && // Must have been airborne for at least a tick
                 Controller.TimeSinceLastAbleToJump <= Settings.JumpPostGroundingGraceTime &&
@@ -95,13 +134,13 @@ namespace Cardini.Motion
                     actualJumpUpSpeed = Settings.JumpUpSpeed_Jog;
                     actualJumpForwardSpeed = Settings.JumpScalableForwardSpeed_Jog;
                 }
-                
+
                 // Tell controller to execute the jump mechanics
                 Controller.ExecuteJump(actualJumpUpSpeed, actualJumpForwardSpeed, Controller.MoveInputVector);
                 // ExecuteJump already sets _jumpConsumed, _jumpedThisFrame, _jumpRequested = false
 
                 // Set current movement state directly here, as ExecuteJump might not know the context
-                Controller.SetMovementState(CharacterMovementState.Jumping); 
+                Controller.SetMovementState(CharacterMovementState.Jumping);
             }
 
             // --- Jump Execution (if flagged by OnEnterState) ---

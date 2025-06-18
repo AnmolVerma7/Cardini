@@ -45,6 +45,15 @@ namespace Cardini.Motion
         [Tooltip("How long after leaving ground a jump is still possible (Coyote Time)")]
         public float JumpPostGroundingGraceTime = 0.1f;
 
+        [Header("Double Jumping")]
+        public bool AllowDoubleJump = false; 
+        public float DoubleJumpUpSpeed_IdleWalk = 8f; 
+        public float DoubleJumpUpSpeed_Jog = 9f; 
+        public float DoubleJumpUpSpeed_Sprint = 10f; 
+        public float DoubleJumpScalableForwardSpeed_IdleWalk = 0f; 
+        public float DoubleJumpScalableForwardSpeed_Jog = 1f; 
+        public float DoubleJumpScalableForwardSpeed_Sprint = 2f; 
+
         [Header("Misc")]
         public Vector3 Gravity = new Vector3(0, -30f, 0);
     }

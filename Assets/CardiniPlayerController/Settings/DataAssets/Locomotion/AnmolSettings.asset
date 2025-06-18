@@ -37,4 +37,11 @@ MonoBehaviour:
   JumpScalableForwardSpeed_Sprint: 0
   JumpPreGroundingGraceTime: 0.1
   JumpPostGroundingGraceTime: 0.2
+  AllowDoubleJump: 1
+  DoubleJumpUpSpeed_IdleWalk: 13
+  DoubleJumpUpSpeed_Jog: 15
+  DoubleJumpUpSpeed_Sprint: 17
+  DoubleJumpScalableForwardSpeed_IdleWalk: 0
+  DoubleJumpScalableForwardSpeed_Jog: 0
+  DoubleJumpScalableForwardSpeed_Sprint: 0
   Gravity: {x: 0, y: -30, z: 0}

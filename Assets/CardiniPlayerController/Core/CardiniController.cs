@@ -57,6 +57,7 @@ namespace Cardini.Motion
         public bool _jumpedThisFrameInternal;// Set by AirborneModule during jump execution
         public float TimeSinceJumpRequested { get; private set; } = Mathf.Infinity;
         public float TimeSinceLastAbleToJump { get; set; } = 0f; // Modules (Airborne) update this
+        public bool _doubleJumpConsumedInternal = false; // <--- ADD THIS LINE
 
         // Internal KCC variables
         public Collider[] ProbedColliders_SharedBuffer { get; private set; } = new Collider[8]; // Modules might need for CharacterOverlap
@@ -499,6 +500,7 @@ namespace Cardini.Motion
         {
             // Called by modules upon landing
             SetJumpConsumed(false); // Allow new jump after landing
+            SetDoubleJumpConsumed(false);
             TimeSinceLastAbleToJump = 0f;
             PlayerAnimator?.SetGrounded(true);
             PlayerAnimator?.TriggerLand();
@@ -563,7 +565,7 @@ namespace Cardini.Motion
                 Time.timeScale = 1f;
             }
         }
-        
+
         /// <summary>
         /// Allows a module to query if a transition from the current state to a target state is allowed by the matrix.
         /// </summary>
@@ -575,5 +577,8 @@ namespace Cardini.Motion
             }
             return transitionMatrix.IsAllowed(CurrentMovementState, targetState);
         }
+        
+        public bool IsDoubleJumpConsumed() => _doubleJumpConsumedInternal; // <--- ADD THIS LINE
+        public void SetDoubleJumpConsumed(bool consumed) => _doubleJumpConsumedInternal = consumed; // <--- ADD THIS LINE
     }
 }

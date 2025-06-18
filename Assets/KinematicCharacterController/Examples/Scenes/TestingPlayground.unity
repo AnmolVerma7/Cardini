@@ -43932,6 +43932,7 @@ MonoBehaviour:
   _jumpRequestedInternal: 0
   _jumpConsumedInternal: 0
   _jumpedThisFrameInternal: 0
+  _doubleJumpConsumedInternal: 0
 --- !u!114 &6607685709280838957
 MonoBehaviour:
   m_ObjectHideFlags: 0
