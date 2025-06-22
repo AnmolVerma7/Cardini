@@ -21,13 +21,14 @@ namespace Cardini.Motion
     {
         None,        // Default or uninitialized
         Idle,
-        Walking,
-        Jogging,     // For your 3-tier system
-        Sprinting,   // Your "Boost" tier
+        Walking,    // 1st tier of movement speed
+        Jogging,     // 2nd tier of movement speed
+        Sprinting,   // 3rd tier of movement speed
         Crouching,
-        Jumping,
-        Falling,
         Sliding,
+        Jumping,     // Regular Jump
+        // DoubleJumping, // Double Jump
+        Falling,
         WallRunning, // Or will be replaced by StickyMovement
         WallJumping,
         Teleporting,

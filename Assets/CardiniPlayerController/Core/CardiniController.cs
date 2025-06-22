@@ -5,13 +5,14 @@ using System.Linq; // For OrderByDescending
 
 namespace Cardini.Motion
 {
+
     public class CardiniController : MonoBehaviour, ICharacterController
     {
         [Header("Core References")]
         public KinematicCharacterMotor Motor;
         public InputBridge inputBridge;
-        public BaseLocomotionSettingsSO Settings;
         public AbilityManager abilityManager;
+        public BaseLocomotionSettingsSO Settings;
         public StateTransitionSO transitionMatrix;
 
         [Header("Object References")]
@@ -28,8 +29,11 @@ namespace Cardini.Motion
         public List<MovementModuleBase> movementModules = new List<MovementModuleBase>();
         private MovementModuleBase _activeMovementModule;
 
+        [Header("Enhanced Input System")]
+        private InputContext _inputContext = new InputContext();
+        private InputProcessor _inputProcessor;
+
         // --- Publicly Readable States (for Modules, UI, etc.) ---
-        // These are now mostly managed by this controller, informed by inputs and module actions
         [Header("Runtime State (Debug)")]
         [SerializeField] public CharacterState CurrentMajorState { get; private set; } = CharacterState.Locomotion;
         [SerializeField] public CharacterMovementState CurrentMovementState { get; private set; } = CharacterMovementState.Idle;
@@ -57,16 +61,20 @@ namespace Cardini.Motion
         public bool _jumpedThisFrameInternal;// Set by AirborneModule during jump execution
         public float TimeSinceJumpRequested { get; private set; } = Mathf.Infinity;
         public float TimeSinceLastAbleToJump { get; set; } = 0f; // Modules (Airborne) update this
-        public bool _doubleJumpConsumedInternal = false; // <--- ADD THIS LINE
+        public bool _doubleJumpConsumedInternal = false;
 
         // Internal KCC variables
         public Collider[] ProbedColliders_SharedBuffer { get; private set; } = new Collider[8]; // Modules might need for CharacterOverlap
         private Vector3 _internalVelocityAdd = Vector3.zero; // For AddVelocity calls
 
-        // Toggle states for sprint/crouch (managed by controller)
         private bool _sprintToggleActive = false;
         private bool _crouchToggleActive = false;
 
+        public InputContext InputContext => _inputContext;
+        public bool IsSlideInitiationRequested => _inputContext.Slide.InitiationRequested;
+        public bool IsSlideCancelRequested => _inputContext.Slide.CancelRequested;
+        public void ConsumeSlideInitiation() => _inputContext.Slide.InitiationRequested = false;
+        public void ConsumeSlideCancellation() => _inputContext.Slide.CancelRequested = false;
         private void Awake()
         {
             if (Motor == null) Motor = GetComponent<KinematicCharacterMotor>();
@@ -76,6 +84,7 @@ namespace Cardini.Motion
             if (abilityManager == null) abilityManager = GetComponentInChildren<AbilityManager>() ?? GetComponent<AbilityManager>();
 
             if (Settings == null) Debug.LogError("CardiniController: BaseLocomotionSettingsSO not assigned!", this);
+            _inputProcessor = new InputProcessor(Settings, Motor);
             if (inputBridge == null) Debug.LogError("CardiniController: InputBridge not found/assigned!", this);
             if (abilityManager == null) Debug.LogWarning("CardiniController: AbilityManager not found/assigned!", this);
             if (PlayerAnimator == null)
@@ -120,116 +129,108 @@ namespace Cardini.Motion
             public bool JumpPressed;
         }
 
-        public void SetControllerInputs(ref ControllerInputs inputs) // Called by CardiniPlayer
+        public void SetControllerInputs(ref ControllerInputs inputs)
         {
-
+            // Handle major state inputs (ability wheel, etc.)
             HandleMajorStateInputs();
 
+            // Early exit for non-locomotion states
             if (CurrentMajorState != CharacterState.Locomotion)
             {
-                MoveInputVector = Vector3.zero;
-                LookInputVector = Motor.CharacterForward;
-                _jumpRequestedInternal = false;
-                IsSprinting = false;
-                ShouldBeCrouching = false;
+                ResetLocomotionInputs();
                 return;
             }
+
             if (Settings == null) return;
 
+            // Step 1: Process movement input (camera-relative)
+            ProcessMovementInput(inputs, ref _inputContext);
+
+            // Step 2: Process jump input
+            ProcessJumpInput(inputs, ref _inputContext);
+
+            // Step 3: Use InputProcessor for all complex logic
+            _inputProcessor.ProcessInputs(inputBridge, ref _inputContext, CurrentMovementState, Time.deltaTime);
+    
+            // Step 4: Apply results to controller properties
+            ApplyInputResults();
+
+        }
+
+        private void ProcessMovementInput(ControllerInputs inputs, ref InputContext context)
+        {
+            // Store raw axes
+            context.MoveAxes = inputs.MoveAxes;
+            
+            // Convert to world-space movement vector
             Vector3 moveInputVectorRaw = Vector3.ClampMagnitude(new Vector3(inputs.MoveAxes.x, 0f, inputs.MoveAxes.y), 1f);
             Vector3 cameraPlanarDirection = Vector3.ProjectOnPlane(inputs.CameraRotation * Vector3.forward, Motor.CharacterUp).normalized;
+            
             if (cameraPlanarDirection.sqrMagnitude == 0f)
             {
                 cameraPlanarDirection = Vector3.ProjectOnPlane(inputs.CameraRotation * Vector3.up, Motor.CharacterUp).normalized;
             }
+            
             Quaternion cameraPlanarRotation = Quaternion.LookRotation(cameraPlanarDirection, Motor.CharacterUp);
-            MoveInputVector = cameraPlanarRotation * moveInputVectorRaw;
+            context.MoveInputVector = cameraPlanarRotation * moveInputVectorRaw;
+            MoveInputVector = context.MoveInputVector; // Update controller property
 
+            // Handle look direction based on orientation method
             if (Settings.OrientationMethod == CardiniOrientationMethod.TowardsCamera)
             {
-                LookInputVector = cameraPlanarDirection;
+                context.LookInputVector = cameraPlanarDirection;
             }
             else if (Settings.OrientationMethod == CardiniOrientationMethod.TowardsMovement)
             {
-                // Maintain last look direction if not moving, otherwise update
-                if (MoveInputVector.sqrMagnitude > 0.001f)
-                    LookInputVector = MoveInputVector.normalized;
-                else if (LookInputVector.sqrMagnitude < 0.001f) // If look vector was also zero (e.g. at start)
-                    LookInputVector = cameraPlanarDirection; // Default to camera direction
-                // else, LookInputVector retains its previous value (last movement direction)
+                if (context.MoveInputVector.sqrMagnitude > 0.001f)
+                    context.LookInputVector = context.MoveInputVector.normalized;
+                else if (context.LookInputVector.sqrMagnitude < 0.001f)
+                    context.LookInputVector = cameraPlanarDirection;
             }
+            
+            LookInputVector = context.LookInputVector; // Update controller property
+        }
 
-
+        private void ProcessJumpInput(ControllerInputs inputs, ref InputContext context)
+        {
             if (inputs.JumpPressed)
             {
                 TimeSinceJumpRequested = 0f;
                 _jumpRequestedInternal = true;
             }
+        }
 
-            bool rawSprintInputHeld = inputBridge.Sprint.IsHeld;
-            bool rawSprintInputPressed = inputBridge.Sprint.IsPressed;
-            bool rawCrouchInputHeld = inputBridge.Crouch.IsHeld;
-            bool rawCrouchInputPressed = inputBridge.Crouch.IsPressed;
 
-            // --- 1. Update internal toggle flags based on button presses (Independent flips) ---
-            // Toggles always flip their internal state when pressed, regardless of other inputs.
-            // The dominance will be applied when determining the *final* IsSprinting/ShouldBeCrouching.
-            if (Settings.UseToggleSprint && rawSprintInputPressed)
+        private void ResetLocomotionInputs()
+        {
+            MoveInputVector = Vector3.zero;
+            LookInputVector = Motor.CharacterForward;
+            _jumpRequestedInternal = false;
+            IsSprinting = false;
+            ShouldBeCrouching = false;
+            _inputContext.Reset();
+        }
+
+        private void ApplyInputResults()
+        {
+            // Apply the processed input states to controller properties
+            IsSprinting = _inputContext.IsSprinting;
+            ShouldBeCrouching = _inputContext.ShouldBeCrouching;
+            
+            // Update internal toggle states
+            _sprintToggleActive = _inputContext.SprintToggleActive;
+            _crouchToggleActive = _inputContext.CrouchToggleActive;
+            
+            // Debug the applied results
+            if (IsSprinting || ShouldBeCrouching)
             {
-                _sprintToggleActive = !_sprintToggleActive;
+                Debug.Log($"[CONTROLLER] Applied Results - IsSprinting: {IsSprinting}, ShouldBeCrouching: {ShouldBeCrouching}");
             }
-            if (Settings.UseToggleCrouch && rawCrouchInputPressed)
-            {
-                _crouchToggleActive = !_crouchToggleActive;
-            }
-
-            // --- 2. Determine desired states (from toggles or holds) ---
-            bool desiredSprintFromInput = Settings.UseToggleSprint ? _sprintToggleActive : rawSprintInputHeld;
-            bool desiredCrouchFromInput = Settings.UseToggleCrouch ? _crouchToggleActive : rawCrouchInputHeld;
-
-
-            // --- 3. Apply Mutual Exclusion / Input Priority to FINAL IsSprinting & ShouldBeCrouching ---
-            // Sprint (with movement) has highest priority.
-            if (desiredSprintFromInput && MoveInputVector.sqrMagnitude > 0.01f)
-            {
-                IsSprinting = true;
-                ShouldBeCrouching = false; // Sprint overrides Crouch
-            }
-            // If not sprinting, then check for crouch.
-            else if (desiredCrouchFromInput)
-            {
-                ShouldBeCrouching = true;
-                IsSprinting = false; // Crouch overrides Sprint IF Sprint wasn't already active from its own input.
-            }
-            // If neither Sprint nor Crouch are actively desired, default to false.
-            else
-            {
-                IsSprinting = false;
-                ShouldBeCrouching = false;
-            }
-
-
-            if (IsSprinting && Settings.UseToggleCrouch && _crouchToggleActive)
-            {
-                _crouchToggleActive = false; // Turn off the crouch toggle because sprint is now active and dominant.
-            }
-
-            else if (ShouldBeCrouching && Settings.UseToggleSprint && _sprintToggleActive)
-            {
-                _sprintToggleActive = false;
-            }
-
-
-            // --- Synchronize internal toggle flags for hold modes (as before, still good practice) ---
-            if (!Settings.UseToggleSprint) _sprintToggleActive = IsSprinting;
-            if (!Settings.UseToggleCrouch) _crouchToggleActive = ShouldBeCrouching;
-
-            PlayerAnimator?.SetCrouching(IsCrouching);
         }
 
         private void HandleMajorStateInputs()
         {
-            if (abilityManager == null) return; // Can't do anything without the manager
+            if (abilityManager == null) return;
 
             bool wasAbilityWheelOpen = (CurrentMajorState == CharacterState.AbilitySelection);
 
@@ -239,17 +240,16 @@ namespace Cardini.Motion
                 {
                     SetMajorState(CharacterState.AbilitySelection);
                     Time.timeScale = 0.1f;
-                    abilityManager.SetAbilityWheelVisible(true); // <<< MODIFIED: No longer pass wheelType
+                    abilityManager.SetAbilityWheelVisible(true);
                 }
             }
             else
             {
                 if (wasAbilityWheelOpen)
                 {
-                    abilityManager.SetAbilityWheelVisible(false); // <<< MODIFIED
+                    abilityManager.SetAbilityWheelVisible(false);
                     SetMajorState(CharacterState.Locomotion);
                     Time.timeScale = 1f;
-                    // abilityManager.ConfirmAbilitySelection(); // This call remains, acts as notification
                 }
             }
         }
@@ -275,7 +275,6 @@ namespace Cardini.Motion
             {
                 if (module.CanEnterState()) // Module determines its own viability
                 {
-                    // <--- ADD THIS BLOCK START
                     // Check if transition to this module's primary state is allowed by the matrix
                     if (transitionMatrix != null &&
                         !transitionMatrix.IsAllowed(CurrentMovementState, module.AssociatedPrimaryMovementState))
@@ -283,7 +282,6 @@ namespace Cardini.Motion
                         // Debug.Log($"Transition from {CurrentMovementState} to {module.AssociatedPrimaryMovementState} blocked by matrix.");
                         continue; // Skip this candidate module, it's not allowed
                     }
-                    // <--- ADD THIS BLOCK END
 
                     if (module.Priority > highestPriority)
                     {
@@ -371,7 +369,6 @@ namespace Cardini.Motion
                 Vector3 smoothedLookInputDirection = Vector3.Slerp(Motor.CharacterForward, LookInputVector, 1 - Mathf.Exp(-Settings.OrientationSharpness * deltaTime)).normalized;
                 currentRotation = Quaternion.LookRotation(smoothedLookInputDirection, Motor.CharacterUp);
             }
-            // Removed Bonus Orientation logic as per your request.
             // Add simple reorient to world up if desired:
             else if (Settings.OrientationSharpness > 0f) // If not actively looking, gently reorient to world up
             {
@@ -384,7 +381,6 @@ namespace Cardini.Motion
         // --- ICharacterController Implementation (Delegation to Active Module) ---
         public void UpdateRotation(ref Quaternion currentRotation, float deltaTime)
         {
-            // <--- MODIFIED BLOCK START
             // If the active module requests to lock rotation, do not allow other modules to update it.
             if (_activeMovementModule != null && _activeMovementModule.LocksRotation)
             {
@@ -393,7 +389,6 @@ namespace Cardini.Motion
                 // We return here to prevent the default delegation.
                 return;
             }
-            // <--- MODIFIED BLOCK END
             if (_activeMovementModule != null && CurrentMajorState == CharacterState.Locomotion)
             {
                 _activeMovementModule.UpdateRotation(ref currentRotation, deltaTime);
@@ -408,16 +403,11 @@ namespace Cardini.Motion
         {
             // ManageModuleTransitions(); // Call this once per frame
 
-            // <--- MODIFIED BLOCK START
-            // If the active module requests to lock velocity, do not allow other modules to update it.
             if (_activeMovementModule != null && _activeMovementModule.LocksVelocity)
             {
-                // Velocity is locked by the active module.
-                // The active module is responsible for setting `currentVelocity` if it needs to.
-                // We proceed to `_internalVelocityAdd` but no other module contributes to velocity here.
+
             }
-            else // ONLY apply module velocity if not locked
-                 // <--- MODIFIED BLOCK END
+            else
 
             if (_activeMovementModule != null && CurrentMajorState == CharacterState.Locomotion)
             {
@@ -452,41 +442,33 @@ namespace Cardini.Motion
             {
                 _activeMovementModule.AfterCharacterUpdate(deltaTime);
             }
-
-            // This logic for jump request timeout is controller-level
             if (_jumpRequestedInternal && TimeSinceJumpRequested > Settings.JumpPreGroundingGraceTime)
             {
                 _jumpRequestedInternal = false;
             }
-
-            // Reset TimeSinceLastAbleToJump  if we are now grounded (Module might have done this, but good to be sure)
-            // This is more accurately handled by the modules now based on their active state.
-            // The GroundedModule sets it to 0 in OnEnterState.
-            // The AirborneModule increments it in its AfterCharacterUpdate.
         }
 
         public void PostGroundingUpdate(float deltaTime)
         {
-            ManageModuleTransitions(); // Good place to check for transitions based on new ground state
+            ManageModuleTransitions();
 
             if (_activeMovementModule != null && CurrentMajorState == CharacterState.Locomotion)
             {
                 _activeMovementModule.PostGroundingUpdate(deltaTime);
             }
-            // This is where TimeSinceLastAbleToJump  is reset if grounded by a module,
-            // or incremented if airborne by a module
         }
 
         public void BeforeCharacterUpdate(float deltaTime)
         {
-            // Prime place to call ManageModuleTransitions once per KCC update cycle
-            TimeSinceJumpRequested += deltaTime; // Increment this early
-            ManageModuleTransitions();
+
+            TimeSinceJumpRequested += deltaTime;
 
             if (_activeMovementModule != null && CurrentMajorState == CharacterState.Locomotion)
             {
                 _activeMovementModule.BeforeCharacterUpdate(deltaTime);
             }
+            ManageModuleTransitions();
+            
         }
 
 
@@ -518,13 +500,9 @@ namespace Cardini.Motion
 
             if (newState == CharacterState.AbilitySelection)
             {
-                // Option A: Tell animator to go to a specific "UI Focus" or "Neutral" animation state
-                // PlayerAnimator?.SetMajorStateParameter(newState); // If you add such a param to animator
-
-                // Option B: Freeze animator speed for locomotion layer
-                if (PlayerAnimator != null && PlayerAnimator is PlayerAnimatorBridge bridge) // Need concrete type for this
+                if (PlayerAnimator != null && PlayerAnimator is PlayerAnimatorBridge bridge)
                 {
-                    bridge.SetAnimatorSpeed(0f); // Need to add SetAnimatorSpeed to PlayerAnimatorBridge
+                    bridge.SetAnimatorSpeed(0f);
                 }
             }
             else if (oldMajorState == CharacterState.AbilitySelection)
@@ -543,7 +521,7 @@ namespace Cardini.Motion
 
             CharacterMovementState oldMovementState = CurrentMovementState;
             CurrentMovementState = newMoveState;
-            PlayerAnimator?.SetMovementState(newMoveState); // <<<--- ANIMATOR CALL
+            PlayerAnimator?.SetMovementState(newMoveState);
             // Additional specific calls based on state changes
             if (newMoveState == CharacterMovementState.Crouching)
             {
@@ -553,7 +531,6 @@ namespace Cardini.Motion
             {
                 PlayerAnimator?.SetCrouching(false);
             }
-            // Debug.Log($"Movement State changed to: {newMoveState}");
         }
 
         public void RequestCloseAbilityWheel()
@@ -577,8 +554,8 @@ namespace Cardini.Motion
             }
             return transitionMatrix.IsAllowed(CurrentMovementState, targetState);
         }
-        
-        public bool IsDoubleJumpConsumed() => _doubleJumpConsumedInternal; // <--- ADD THIS LINE
-        public void SetDoubleJumpConsumed(bool consumed) => _doubleJumpConsumedInternal = consumed; // <--- ADD THIS LINE
+
+        public bool IsDoubleJumpConsumed() => _doubleJumpConsumedInternal;
+        public void SetDoubleJumpConsumed(bool consumed) => _doubleJumpConsumedInternal = consumed; 
     }
 }

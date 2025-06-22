@@ -478,7 +478,7 @@ PrefabInstance:
     - target: {fileID: 5866666021909216657, guid: 37bf7faac7c56544eba34afb77d0609d, type: 3}
       propertyPath: m_Controller
       value: 
-      objectReference: {fileID: 9100000, guid: c4f67512f3644be41a99d4270a14fdd8, type: 2}
+      objectReference: {fileID: 9100000, guid: 86c800d8974487246be7ad9c05403c50, type: 2}
     - target: {fileID: 5866666021909216657, guid: 37bf7faac7c56544eba34afb77d0609d, type: 3}
       propertyPath: m_ApplyRootMotion
       value: 0
@@ -16293,7 +16293,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   Conditions:
     RequireGrounded: 0
-    RequireAirborne: 0
+    RequireAirborne: 1
     RequireSprint: 0
     BlockIfSprinting: 0
     MinSpeed: 0
@@ -20060,6 +20060,92 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 972329905}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!1 &989805600
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 989805601}
+  - component: {fileID: 989805602}
+  m_Layer: 9
+  m_Name: SlideModuleGO
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &989805601
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 989805600}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 6505057340831361182}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &989805602
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 989805600}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 54563c11ac6d76d4985a7e695422ffaa, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  Conditions:
+    RequireGrounded: 1
+    RequireAirborne: 0
+    RequireSprint: 0
+    BlockIfSprinting: 0
+    MinSpeed: 0
+    BlockIfCrouching: 0
+  slideCapsuleHeight: 1
+  minSlideSpeed: 8
+  maxSlideDuration: 2
+  slideSpeedBoost: 1.2
+  slideFrictionCurve:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 1
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 0.3
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  slopeInfluence: 0.5
+  maxSlideSlope: 45
+  slideSteerStrength: 2
+  minExitSpeed: 2
+  bulletJumpSpeedThreshold: 8
+  bulletJumpUpBoost: 1.2
+  bulletJumpForwardBoost: 1.3
 --- !u!1 &990709877
 GameObject:
   m_ObjectHideFlags: 0
@@ -43718,6 +43804,7 @@ Transform:
   - {fileID: 6509949385530125624}
   - {fileID: 801601201}
   - {fileID: 523059729}
+  - {fileID: 989805601}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!4 &6505238199867825826
@@ -43920,14 +44007,15 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   Motor: {fileID: 6607685709280838957}
   inputBridge: {fileID: 6607685709280838959}
-  Settings: {fileID: 11400000, guid: 1356fa3670c4b174da30fbfe662325c1, type: 2}
   abilityManager: {fileID: 6607685709280838960}
-  transitionMatrix: {fileID: 11400000, guid: 81a37cc71303d9b448826e4cfa81f6e5, type: 2}
+  Settings: {fileID: 11400000, guid: 1356fa3670c4b174da30fbfe662325c1, type: 2}
+  transitionMatrix: {fileID: 11400000, guid: 8b4477e42792af440bb8da3f2dc3ea1f, type: 2}
   MeshRoot: {fileID: 6510422302040278518}
   CameraFollowPoint: {fileID: 6505238199867825826}
   IgnoredColliders: []
   movementModules:
   - {fileID: 523059730}
+  - {fileID: 989805602}
   - {fileID: 801601200}
   _jumpRequestedInternal: 0
   _jumpConsumedInternal: 0

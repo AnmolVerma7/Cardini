@@ -5,12 +5,11 @@ namespace Cardini.Motion
 {
     public class InputBridge : MonoBehaviour
     {
-        // Your ButtonInputState struct - It's good!
         public struct ButtonInputState
         {
-            public bool IsPressed { get; private set; } // True for the frame it was pressed
-            public bool IsHeld { get; private set; }    // True if currently held down
-            public bool WasReleasedThisFrame { get; private set; } // True for the frame it was released
+            public bool IsPressed { get; private set; }
+            public bool IsHeld { get; private set; }
+            public bool WasReleasedThisFrame { get; private set; } 
 
             private bool _isPressedInternalNextFrame;
             private bool _wasReleasedInternalNextFrame;
@@ -69,8 +68,6 @@ namespace Cardini.Motion
 
 
         // --- Unity Input System Callback Methods (to be called by PlayerInput component) ---
-        // These methods should be public if PlayerInput is using "Send Messages" or "Invoke Unity Events"
-        // to call them.
         public void OnMove(InputAction.CallbackContext context)
         {
             MoveInput = context.ReadValue<Vector2>();
@@ -92,11 +89,12 @@ namespace Cardini.Motion
 
         public void OnCrouch(InputAction.CallbackContext context)
         {
-            // From your old code: " _cancelEquippedAbility.SetPressed(); "
+
             // This implies Crouch and CancelEquippedAbility might share an input or context.
             // For now, InputBridge will report the raw Crouch button state.
             // CardiniController will decide if a Crouch press means "Crouch" or "Cancel"
             // based on game state (e.g., if an ability is being aimed).
+            // Anmol update: need to fix this, as it is not working properly
             if (context.started) _crouchButton.SetPressed();
             else if (context.canceled) _crouchButton.SetReleased();
         }

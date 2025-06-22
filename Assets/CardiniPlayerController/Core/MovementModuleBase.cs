@@ -32,9 +32,7 @@ namespace Cardini.Motion
         // <--- ADD THIS FIELD START
         [Header("Module Conditions")]
         public ModuleConditions Conditions;
-        // <--- ADD THIS FIELD END
 
-        // <--- ADD THESE PROPERTIES START
         /// <summary>
         /// If true, the CardiniController will not delegate velocity calculations to any module during KCC's UpdateVelocity.
         /// This module is then solely responsible for setting `currentVelocity` or expecting external forces.

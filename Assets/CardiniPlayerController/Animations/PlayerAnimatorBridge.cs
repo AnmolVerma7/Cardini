@@ -16,8 +16,9 @@ namespace Cardini.Motion
         private readonly int _hashVelocityZ = Animator.StringToHash("VelocityZ");
         private readonly int _hashNormalizedSpeed = Animator.StringToHash("NormalizedSpeed");
         private readonly int _hashJump = Animator.StringToHash("Jump");
-        private readonly int _hashMovementState = Animator.StringToHash("MovementState"); // You added this
-        private readonly int _hashLand = Animator.StringToHash("Land"); // <<< ADD THIS HASH
+        private readonly int _hashMovementState = Animator.StringToHash("MovementState");
+        private readonly int _hashLand = Animator.StringToHash("Land"); 
+        private readonly int _hashIsSliding = Animator.StringToHash("IsSliding");
 
         [Header("Animation Smoothing")]
         [SerializeField] private float _speedTierDampTime = 0.1f; // For the overall speed/tier parameter
@@ -44,6 +45,11 @@ namespace Cardini.Motion
         public void SetCrouching(bool isCrouching)
         {
             if (enabled) animator.SetBool(_hashIsCrouching, isCrouching);
+        }
+
+        public void SetSliding(bool isSliding)
+        {
+            if (enabled) animator.SetBool(_hashIsSliding, isSliding);
         }
 
         public void SetLocomotionSpeeds(float normalizedSpeed, float velocityX, float velocityZ)

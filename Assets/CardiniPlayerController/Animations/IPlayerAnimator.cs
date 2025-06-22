@@ -8,7 +8,7 @@ namespace Cardini.Motion
     {
         void SetGrounded(bool isGrounded);
         void SetCrouching(bool isCrouching);
-        // void SetSliding(bool isSliding);
+        void SetSliding(bool isSliding);
         // void SetWallRunning(bool isWallRunning, float wallRunDirection);
 
         /// <summary>

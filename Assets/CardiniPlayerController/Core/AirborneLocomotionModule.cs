@@ -7,7 +7,7 @@ namespace Cardini.Motion
     {
         private bool _initiatedByJumpThisFrame = false; // Was this airborne state started by a jump this activation?
 
-        public override int Priority => 1; // Same base priority as Grounded for now
+        public override int Priority => 2; // Same base priority as Grounded for now
 
         public override CharacterMovementState AssociatedPrimaryMovementState
         {
@@ -71,8 +71,7 @@ namespace Cardini.Motion
         
         {
             if (Settings == null) return;
-            // <--- ADD THIS BLOCK START: Double Jump Logic
-            // Handle double jump
+            // Double Jump Logic Handle double jump
             if (Settings.AllowDoubleJump)
             {
                 // Conditions for double jump: jump requested, first jump consumed, double jump not yet consumed, and character is airborne
@@ -109,14 +108,13 @@ namespace Cardini.Motion
                     Controller.SetMovementState(CharacterMovementState.Jumping); // Explicitly set to Jumping state
                 }
             }
-            // <--- ADD THIS BLOCK END
 
             // --- Handle Coyote Jump Initiation (if requested and conditions met) ---
             if (Controller.IsJumpRequested() &&
-                !Controller.IsJumpConsumed() && // Haven't already jumped in this airtime
+                !Controller.IsJumpConsumed() && 
                 Controller.TimeSinceLastAbleToJump > 0f && // Must have been airborne for at least a tick
                 Controller.TimeSinceLastAbleToJump <= Settings.JumpPostGroundingGraceTime &&
-                !Motor.GroundingStatus.FoundAnyGround) // Double check we are truly off ground
+                !Motor.GroundingStatus.FoundAnyGround)
             {
                 // This is a Coyote Jump
                 float jumpSpeedTierForCoyote = Controller.LastGroundedSpeedTier; // Use speed before falling
@@ -177,31 +175,12 @@ namespace Cardini.Motion
 
             // --- Apply Drag ---
             currentVelocity *= (1f / (1f + (Settings.Drag * deltaTime)));
-
-            // --- Handle buffered jump request (if any) ---
-            // This is where a double jump or similar could be processed if _jumpRequested is true
-            // For now, we assume single jump from ground.
         }
 
         public override void AfterCharacterUpdate(float deltaTime)
         {
             if (Settings == null) return;
-
-            // --- Jump State Flag Resets (from CardiniController) ---
-            // Note: Controller._jumpedThisFrame is reset by CardiniController itself.
-            // _jumpConsumed is reset by CardiniController when grounded and not _jumpedThisFrame.
-
-            // Increment time since last able to jump (since we are airborne)
             Controller.TimeSinceLastAbleToJump += deltaTime;
-            
-            // If a jump was requested but not consumed (e.g., buffered jump, or failed double jump)
-            // and the buffer time has passed, clear the request.
-            // This specific line for JumpPreGroundingGraceTime is more for jumps *before* landing,
-            // which is now handled by CardiniController's main AfterCharacterUpdate.
-            // if (Controller.IsJumpRequested() && Controller._timeSinceJumpRequested > Settings.JumpPreGroundingGraceTime)
-            // {
-            //    Controller.ConsumeJumpRequest();
-            // }
         }
 
         public override void PostGroundingUpdate(float deltaTime)

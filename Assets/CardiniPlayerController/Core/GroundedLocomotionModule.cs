@@ -29,9 +29,12 @@ namespace Cardini.Motion
             // This module can enter if the character is on stable ground
             // AND the major state is Locomotion
             // AND no higher priority module (like a vault or slide starting from ground) wants to run.
+            bool isExitingSlide = Controller.CurrentMovementState == CharacterMovementState.Sliding;
+    
             return Motor.GroundingStatus.IsStableOnGround &&
-                   Controller.CurrentMajorState == CharacterState.Locomotion &&
-                    CommonChecks();
+                Controller.CurrentMajorState == CharacterState.Locomotion &&
+                CommonChecks() &&
+                (isExitingSlide || true);
         }
 
         public override void OnEnterState()
@@ -41,7 +44,9 @@ namespace Cardini.Motion
             Controller.TimeSinceLastAbleToJump = 0f; // Reset coyote timer when grounded
             if (!Controller._jumpedThisFrameInternal) // If we didn't just land from a jump that WE initiated
             {
-                Controller.ConsumeJumpRequest(); // Clear any buffered jump request if we land without jumping
+                Controller.ConsumeJumpRequest();
+                Controller.SetJumpConsumed(false); // Clear any buffered jump request if we land without jumping
+                Controller.SetDoubleJumpConsumed(false); // Clear any buffered jump request if we land without jumping
             }
             UpdateGroundedSubState(Controller.MoveInputVector.magnitude);
         }
@@ -96,7 +101,6 @@ namespace Cardini.Motion
             if (_currentGroundedSubState == CharacterMovementState.Sprinting) normalizedSpeedTier = 3f;
             else if (_currentGroundedSubState == CharacterMovementState.Jogging) normalizedSpeedTier = 2f;
             else if (_currentGroundedSubState == CharacterMovementState.Walking) normalizedSpeedTier = 1f;
-            // else Idle, so 0f
 
             // Calculate local velocities for 2D blend tree
             // MoveInputVector is world-space camera-relative input
@@ -189,6 +193,13 @@ namespace Cardini.Motion
         public override void AfterCharacterUpdate(float deltaTime)
         {
             if (Settings == null) return;
+            // IMPORTANT: Skip capsule management if we're sliding
+            // The slide module handles its own capsule dimensions
+            if (Controller.CurrentMovementState == CharacterMovementState.Sliding)
+            {
+                Debug.Log("[Grounded] Skipping capsule update - currently sliding");
+                return;
+            }
 
             // --- Crouching Capsule Logic ---
             // Reads Controller.ShouldBeCrouching, updates Controller._isCrouching (physical state)
@@ -204,16 +215,13 @@ namespace Cardini.Motion
                 else
                 {
                     // Uncrouch successful
-                    // if (Controller.MeshRoot) Controller.MeshRoot.localScale = Vector3.one;
-                    IsCrouching = false; // This now calls Controller.SetCrouchingState(false)
+                    IsCrouching = false;
                 }
             }
             else if (!IsCrouching && ShouldBeCrouching) // Attempting to crouch
             {
                 IsCrouching = true; // This now calls Controller.SetCrouchingState(true)
                 Motor.SetCapsuleDimensions(Motor.Capsule.radius, Settings.CrouchedCapsuleHeight, Settings.CrouchedCapsuleHeight * 0.5f);
-                // if (Controller.MeshRoot)
-                //     Controller.MeshRoot.localScale = new Vector3(Controller.MeshRoot.localScale.x, Settings.CrouchedCapsuleHeight / Settings.DefaultCapsuleHeight, Controller.MeshRoot.localScale.z);
             }
 
             // Update the sub-state after all physics and crouch changes
