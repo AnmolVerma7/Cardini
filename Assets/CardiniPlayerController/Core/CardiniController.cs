@@ -401,7 +401,7 @@ namespace Cardini.Motion
 
         public void UpdateVelocity(ref Vector3 currentVelocity, float deltaTime)
         {
-            // ManageModuleTransitions(); // Call this once per frame
+            ManageModuleTransitions(); // Call this once per frame
 
             if (_activeMovementModule != null && _activeMovementModule.LocksVelocity)
             {

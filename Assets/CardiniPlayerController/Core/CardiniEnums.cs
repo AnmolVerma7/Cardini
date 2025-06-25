@@ -32,6 +32,7 @@ namespace Cardini.Motion
         WallRunning, // Or will be replaced by StickyMovement
         WallJumping,
         Teleporting,
+        Vaulting,
         // Add more specific parkour/action states as you develop them:
         // e.g., Mantling, Vaulting, LedgeGrabbing, etc.
     }

@@ -23,5 +23,8 @@ namespace Cardini.Motion
         void SetMovementState(CharacterMovementState movementState);
         void TriggerJump();
         void TriggerLand();
+
+        void TriggerVault();
+        void SetVaultProgress(float progress);
     }
 }

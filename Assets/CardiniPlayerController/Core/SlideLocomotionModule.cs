@@ -74,7 +74,7 @@ namespace Cardini.Motion
                 // This will force the module system to find a new module
                 if (_shouldExitSlide)
                 {
-                    Debug.Log("[SLIDE] CanEnterState returning FALSE - should exit slide");
+                    // Debug.Log("[SLIDE] CanEnterState returning FALSE - should exit slide");
                     return false;
                 }
                 // Otherwise, we can continue sliding
@@ -84,12 +84,12 @@ namespace Cardini.Motion
             // Otherwise, check if we can start a new slide
             if (!CommonChecks())
             {
-                Debug.Log("Slide: CommonChecks failed");
+                // Debug.Log("Slide: CommonChecks failed");
                 return false;
             }
 
             bool slideInitiated = Controller.IsSlideInitiationRequested;
-            Debug.Log($"Slide: SlideInitiated = {slideInitiated}, Current State: {Controller.CurrentMovementState}");
+            // Debug.Log($"Slide: SlideInitiated = {slideInitiated}, Current State: {Controller.CurrentMovementState}");
 
             if (!slideInitiated)
             {
@@ -104,24 +104,24 @@ namespace Cardini.Motion
             if (Controller.IsSprinting && Controller.MoveInputVector.magnitude > 0.1f)
             {
                 hasEnoughSpeed = Settings.MaxSprintSpeed > minSlideSpeed;
-                Debug.Log($"Slide: Sprint speed check - MaxSprintSpeed: {Settings.MaxSprintSpeed:F2} vs minSlideSpeed: {minSlideSpeed:F2}");
+                // Debug.Log($"Slide: Sprint speed check - MaxSprintSpeed: {Settings.MaxSprintSpeed:F2} vs minSlideSpeed: {minSlideSpeed:F2}");
             }
             else
             {
                 hasEnoughSpeed = currentSpeed > minSlideSpeed;
-                Debug.Log($"Slide: Current speed check - {currentSpeed:F2} vs {minSlideSpeed:F2}");
+                // Debug.Log($"Slide: Current speed check - {currentSpeed:F2} vs {minSlideSpeed:F2}");
             }
 
             if (!hasEnoughSpeed)
             {
-                Debug.Log("Slide: BLOCKED - Not enough speed");
+                // Debug.Log("Slide: BLOCKED - Not enough speed");
                 return false;
             }
 
             bool onGround = Motor.GroundingStatus.IsStableOnGround;
             if (!onGround)
             {
-                Debug.Log("Slide: BLOCKED - Not on ground");
+                // Debug.Log("Slide: BLOCKED - Not on ground");
                 return false;
             }
 
@@ -132,18 +132,18 @@ namespace Cardini.Motion
                 slopeOk = slopeAngle <= maxSlideSlope;
                 if (!slopeOk)
                 {
-                    Debug.Log($"Slide: BLOCKED - Slope too steep: {slopeAngle:F2}° > {maxSlideSlope}°");
+                    // Debug.Log($"Slide: BLOCKED - Slope too steep: {slopeAngle:F2}° > {maxSlideSlope}°");
                     return false;
                 }
             }
 
-            Debug.Log("Slide: ALL CHECKS PASSED - Can enter slide!");
+            // Debug.Log("Slide: ALL CHECKS PASSED - Can enter slide!");
             return true;
         }
 
         public override void OnEnterState()
         {
-            Debug.Log($"[SLIDE] ENTERING Slide State! Current Speed: {Motor.BaseVelocity.magnitude:F2}");
+            // Debug.Log($"[SLIDE] ENTERING Slide State! Current Speed: {Motor.BaseVelocity.magnitude:F2}");
 
             _isCurrentlySliding = true;
             _slideTimer = 0f;
@@ -160,21 +160,21 @@ namespace Cardini.Motion
                 // Use intended direction and speed
                 _slideDirection = Controller.MoveInputVector.normalized;
                 _initialSlideSpeed = Settings.MaxSprintSpeed * slideSpeedBoost;
-                Debug.Log($"Using intended slide direction: {_slideDirection}, speed: {_initialSlideSpeed:F2}");
+                // Debug.Log($"Using intended slide direction: {_slideDirection}, speed: {_initialSlideSpeed:F2}");
             }
             else
             {
                 // Fallback to forward direction
                 _slideDirection = Motor.CharacterForward;
                 _initialSlideSpeed = Settings.MaxSprintSpeed * slideSpeedBoost;
-                Debug.Log($"Using forward slide direction, speed: {_initialSlideSpeed:F2}");
+                // Debug.Log($"Using forward slide direction, speed: {_initialSlideSpeed:F2}");
             }
 
             // Set slide capsule dimensions
             float slideHeight = Settings.CrouchedCapsuleHeight * slideCapsuleHeight;
             float slideYOffset = slideCapsuleHeight * 0.5f;
 
-            Debug.Log($"[SLIDE] Setting capsule - Height: {slideHeight:F2}, YOffset: {slideYOffset:F2}");
+            // Debug.Log($"[SLIDE] Setting capsule - Height: {slideHeight:F2}, YOffset: {slideYOffset:F2}");
             Motor.SetCapsuleDimensions(Motor.Capsule.radius, slideHeight, slideYOffset);
 
             // IMPORTANT: Tell the controller we're in a special crouch state
@@ -189,12 +189,12 @@ namespace Cardini.Motion
             // Determine if we can chain into other moves based on entry speed
             _canChainIntoOtherMoves = _initialSlideSpeed > minSlideSpeed * 1.5f;
 
-            Debug.Log($"[SLIDE] Slide initialized - Direction: {_slideDirection}, Speed: {_initialSlideSpeed:F2}");
+            // Debug.Log($"[SLIDE] Slide initialized - Direction: {_slideDirection}, Speed: {_initialSlideSpeed:F2}");
         }
 
         public override void OnExitState()
         {
-            Debug.Log("[SLIDE] EXITING Slide State!");
+            // Debug.Log("[SLIDE] EXITING Slide State!");
 
             _isCurrentlySliding = false;
             _shouldExitSlide = false;
@@ -210,7 +210,7 @@ namespace Cardini.Motion
             Controller.SetCrouchingState(false);
             PlayerAnimator?.SetSliding(false);
 
-            Debug.Log($"[SLIDE] Reset capsule height to {Settings.DefaultCapsuleHeight:F2}");
+            // Debug.Log($"[SLIDE] Reset capsule height to {Settings.DefaultCapsuleHeight:F2}");
         }
 
         public override void UpdateVelocity(ref Vector3 currentVelocity, float deltaTime)
@@ -220,13 +220,13 @@ namespace Cardini.Motion
 
             if (_slideTimer >= maxSlideDuration)
             {
-                Debug.Log("[SLIDE] Duration exceeded");
+                // Debug.Log("[SLIDE] Duration exceeded");
                 _shouldExitSlide = true;
             }
 
             if (!Motor.GroundingStatus.FoundAnyGround)
             {
-                Debug.Log("[SLIDE] Lost ground contact");
+                // Debug.Log("[SLIDE] Lost ground contact");
                 _shouldExitSlide = true;
             }
             // If we should exit, still calculate velocity for this frame
@@ -241,7 +241,7 @@ namespace Cardini.Motion
             // Check minimum speed
             if (currentSlideSpeed < minExitSpeed && !_shouldExitSlide)
             {
-                Debug.Log($"[SLIDE] Speed too low: {currentSlideSpeed:F2} < {minExitSpeed:F2}");
+                // Debug.Log($"[SLIDE] Speed too low: {currentSlideSpeed:F2} < {minExitSpeed:F2}");
                 _shouldExitSlide = true;
             }
 
@@ -253,7 +253,7 @@ namespace Cardini.Motion
 
                 if (!Controller.IsJumpConsumed() && canSlideJump && isJumpAllowedByMatrix)
                 {
-                    Debug.Log("[SLIDE] Executing jump from slide!");
+                    // Debug.Log("[SLIDE] Executing jump from slide!");
 
                     // Use slide speed for jump power calculation
                     float slideSpeed = currentSlideSpeed;
@@ -265,7 +265,7 @@ namespace Cardini.Motion
                     {
                         actualJumpUpSpeed *= bulletJumpUpBoost;
                         actualJumpForwardSpeed *= bulletJumpForwardBoost;
-                        Debug.Log($"[SLIDE] BULLET JUMP! Speed: {slideSpeed:F2}, Boosts: {bulletJumpUpBoost}x up, {bulletJumpForwardBoost}x forward");
+                        // Debug.Log($"[SLIDE] BULLET JUMP! Speed: {slideSpeed:F2}, Boosts: {bulletJumpUpBoost}x up, {bulletJumpForwardBoost}x forward");
                     }
 
                     Controller.ExecuteJump(actualJumpUpSpeed, actualJumpForwardSpeed, _slideDirection);
@@ -275,7 +275,7 @@ namespace Cardini.Motion
                 }
                 else
                 {
-                    Debug.Log($"[SLIDE] Jump blocked - Consumed: {Controller.IsJumpConsumed()}, CanJump: {canSlideJump}, Matrix: {isJumpAllowedByMatrix}");
+                    // Debug.Log($"[SLIDE] Jump blocked - Consumed: {Controller.IsJumpConsumed()}, CanJump: {canSlideJump}, Matrix: {isJumpAllowedByMatrix}");
                     Controller.ConsumeJumpRequest();
                 }
             }
@@ -324,7 +324,7 @@ namespace Cardini.Motion
             // Debug info
             if (Time.frameCount % 30 == 0)
             {
-                Debug.Log($"[SLIDE] Timer: {_slideTimer:F2}s, Speed: {currentSlideSpeed:F2}, Progress: {slideProgress:F2}, ShouldExit: {_shouldExitSlide}");
+                // Debug.Log($"[SLIDE] Timer: {_slideTimer:F2}s, Speed: {currentSlideSpeed:F2}, Progress: {slideProgress:F2}, ShouldExit: {_shouldExitSlide}");
             }
         }
 
@@ -347,14 +347,14 @@ namespace Cardini.Motion
             // If we're sliding and should exit, force a module transition check
             if (_isCurrentlySliding && _shouldExitSlide)
             {
-                Debug.Log("[SLIDE] Forcing transition check in BeforeCharacterUpdate");
+                // Debug.Log("[SLIDE] Forcing transition check in BeforeCharacterUpdate");
                 // The controller will call ManageModuleTransitions in its BeforeCharacterUpdate
                 Controller.ConsumeSlideInitiation();
             }
 
             if (Controller.IsSlideCancelRequested)
             {
-                Debug.Log("[SLIDE] Cancelled by player input");
+                // Debug.Log("[SLIDE] Cancelled by player input");
                 _shouldExitSlide = true;
                 Controller.ConsumeSlideCancellation();
             }

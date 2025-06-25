@@ -156,38 +156,94 @@ namespace Cardini.Motion
 
             currentVelocity = Vector3.Lerp(currentVelocity, targetMovementVelocity, 1f - Mathf.Exp(-Settings.StableMovementSharpness * deltaTime));
 
+            // // --- Handle Jump Initiation ---
+            // if (Controller.IsJumpRequested())
+            // {
+            //     // Debug.Log($"[Grounded] Jump Requested! Current SubState: {_currentGroundedSubState}, CurrentControllerState: {Controller.CurrentMovementState}");
+            //     bool isJumpAllowedByMatrix = Controller.CanTransitionToState(CharacterMovementState.Jumping);
+            //     bool canGroundJump = (Settings.AllowJumpingWhenSliding ? Motor.GroundingStatus.FoundAnyGround : Motor.GroundingStatus.IsStableOnGround);
+            //     if (!Controller.IsJumpConsumed() && canGroundJump && isJumpAllowedByMatrix)
+            //     {
+            //         // Debug.Log($"[Grounded] Jump Execution ALLOWED! Matrix allowed: {isJumpAllowedByMatrix}. Consumed: {Controller.IsJumpConsumed()}.");
+            //         float jumpSpeedTierForThisJump = Controller.CurrentSpeedTierForJump;
+            //         float actualJumpUpSpeed = Settings.JumpUpSpeed_IdleWalk;
+            //         float actualJumpForwardSpeed = Settings.JumpScalableForwardSpeed_IdleWalk;
+
+            //         if (jumpSpeedTierForThisJump >= Settings.MaxSprintSpeed * 0.9f)
+            //         {
+            //             actualJumpUpSpeed = Settings.JumpUpSpeed_Sprint;
+            //             actualJumpForwardSpeed = Settings.JumpScalableForwardSpeed_Sprint;
+            //         }
+            //         else if (jumpSpeedTierForThisJump >= Settings.MaxJogSpeed * 0.9f)
+            //         {
+            //             actualJumpUpSpeed = Settings.JumpUpSpeed_Jog;
+            //             actualJumpForwardSpeed = Settings.JumpScalableForwardSpeed_Jog;
+            //         }
+
+            //         Controller.ExecuteJump(actualJumpUpSpeed, actualJumpForwardSpeed, Controller.MoveInputVector);
+            //     }
+            //     else // If jump was requested but blocked by matrix/conditions or already consumed
+            //     {
+            //         // Debug.Log($"[Grounded] Jump Execution BLOCKED! Consumed: {Controller.IsJumpConsumed()}, GroundJump: {canGroundJump}, Matrix Allowed: {isJumpAllowedByMatrix}. Consuming request.");
+            //         Controller.ConsumeJumpRequest(); // Consume it immediately, whether it's matrix, conditions, or already consumed.
+            //     }
+            // }
             // --- Handle Jump Initiation ---
-            if (Controller.IsJumpRequested())
+if (Controller.IsJumpRequested())
+{
+    Debug.Log($"[Grounded] Jump Requested! Current SubState: {_currentGroundedSubState}, CurrentControllerState: {Controller.CurrentMovementState}");
+    
+    // NEW: Check if any higher priority module (like VaultModule) wants this jump input
+    bool higherPriorityModuleWantsJump = false;
+    foreach (var module in Controller.movementModules)
+    {
+        if (module.Priority > this.Priority && module.CanEnterState())
+        {
+            higherPriorityModuleWantsJump = true;
+            Debug.Log($"[Grounded] Higher priority module {module.GetType().Name} wants jump input");
+            break;
+        }
+    }
+    
+    // Only process jump if no higher priority module wants it
+    if (!higherPriorityModuleWantsJump)
+    {
+        bool isJumpAllowedByMatrix = Controller.CanTransitionToState(CharacterMovementState.Jumping);
+        bool canGroundJump = (Settings.AllowJumpingWhenSliding ? Motor.GroundingStatus.FoundAnyGround : Motor.GroundingStatus.IsStableOnGround);
+        
+        if (!Controller.IsJumpConsumed() && canGroundJump && isJumpAllowedByMatrix)
+        {
+            Debug.Log($"[Grounded] Jump Execution ALLOWED! Matrix allowed: {isJumpAllowedByMatrix}. Consumed: {Controller.IsJumpConsumed()}.");
+            
+            float jumpSpeedTierForThisJump = Controller.CurrentSpeedTierForJump;
+            float actualJumpUpSpeed = Settings.JumpUpSpeed_IdleWalk;
+            float actualJumpForwardSpeed = Settings.JumpScalableForwardSpeed_IdleWalk;
+
+            if (jumpSpeedTierForThisJump >= Settings.MaxSprintSpeed * 0.9f)
             {
-                // Debug.Log($"[Grounded] Jump Requested! Current SubState: {_currentGroundedSubState}, CurrentControllerState: {Controller.CurrentMovementState}");
-                bool isJumpAllowedByMatrix = Controller.CanTransitionToState(CharacterMovementState.Jumping);
-                bool canGroundJump = (Settings.AllowJumpingWhenSliding ? Motor.GroundingStatus.FoundAnyGround : Motor.GroundingStatus.IsStableOnGround);
-                if (!Controller.IsJumpConsumed() && canGroundJump && isJumpAllowedByMatrix)
-                {
-                    // Debug.Log($"[Grounded] Jump Execution ALLOWED! Matrix allowed: {isJumpAllowedByMatrix}. Consumed: {Controller.IsJumpConsumed()}.");
-                    float jumpSpeedTierForThisJump = Controller.CurrentSpeedTierForJump;
-                    float actualJumpUpSpeed = Settings.JumpUpSpeed_IdleWalk;
-                    float actualJumpForwardSpeed = Settings.JumpScalableForwardSpeed_IdleWalk;
-
-                    if (jumpSpeedTierForThisJump >= Settings.MaxSprintSpeed * 0.9f)
-                    {
-                        actualJumpUpSpeed = Settings.JumpUpSpeed_Sprint;
-                        actualJumpForwardSpeed = Settings.JumpScalableForwardSpeed_Sprint;
-                    }
-                    else if (jumpSpeedTierForThisJump >= Settings.MaxJogSpeed * 0.9f)
-                    {
-                        actualJumpUpSpeed = Settings.JumpUpSpeed_Jog;
-                        actualJumpForwardSpeed = Settings.JumpScalableForwardSpeed_Jog;
-                    }
-
-                    Controller.ExecuteJump(actualJumpUpSpeed, actualJumpForwardSpeed, Controller.MoveInputVector);
-                }
-                else // If jump was requested but blocked by matrix/conditions or already consumed
-                {
-                    // Debug.Log($"[Grounded] Jump Execution BLOCKED! Consumed: {Controller.IsJumpConsumed()}, GroundJump: {canGroundJump}, Matrix Allowed: {isJumpAllowedByMatrix}. Consuming request.");
-                    Controller.ConsumeJumpRequest(); // Consume it immediately, whether it's matrix, conditions, or already consumed.
-                }
+                actualJumpUpSpeed = Settings.JumpUpSpeed_Sprint;
+                actualJumpForwardSpeed = Settings.JumpScalableForwardSpeed_Sprint;
             }
+            else if (jumpSpeedTierForThisJump >= Settings.MaxJogSpeed * 0.9f)
+            {
+                actualJumpUpSpeed = Settings.JumpUpSpeed_Jog;
+                actualJumpForwardSpeed = Settings.JumpScalableForwardSpeed_Jog;
+            }
+
+            Controller.ExecuteJump(actualJumpUpSpeed, actualJumpForwardSpeed, Controller.MoveInputVector);
+        }
+        else
+        {
+            Debug.Log($"[Grounded] Jump Execution BLOCKED! Consumed: {Controller.IsJumpConsumed()}, GroundJump: {canGroundJump}, Matrix Allowed: {isJumpAllowedByMatrix}. Consuming request.");
+            Controller.ConsumeJumpRequest();
+        }
+    }
+    else
+    {
+        Debug.Log("[Grounded] Deferring jump to higher priority module");
+        // Don't consume the jump request - let the higher priority module handle it
+    }
+}
         }
 
         public override void AfterCharacterUpdate(float deltaTime)

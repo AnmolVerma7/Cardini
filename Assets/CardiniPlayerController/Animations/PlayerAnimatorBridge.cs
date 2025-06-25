@@ -17,14 +17,20 @@ namespace Cardini.Motion
         private readonly int _hashNormalizedSpeed = Animator.StringToHash("NormalizedSpeed");
         private readonly int _hashJump = Animator.StringToHash("Jump");
         private readonly int _hashMovementState = Animator.StringToHash("MovementState");
-        private readonly int _hashLand = Animator.StringToHash("Land"); 
+        private readonly int _hashLand = Animator.StringToHash("Land");
         private readonly int _hashIsSliding = Animator.StringToHash("IsSliding");
+
+        // Vaulting Animation Parameters
+        private readonly int _hashVault = Animator.StringToHash("Vault");
+        private readonly int _hashVaultProgress = Animator.StringToHash("VaultProgress");
+        private readonly int _hashIsVaulting = Animator.StringToHash("IsVaulting");
 
         [Header("Animation Smoothing")]
         [SerializeField] private float _speedTierDampTime = 0.1f; // For the overall speed/tier parameter
         [SerializeField] private float _directionalDampTime = 0.05f; // For VelocityX/Z
+        [SerializeField] private float _vaultProgressDampTime = 0.05f;
 
-         void Awake()
+        void Awake()
         {
             if (animator == null) animator = GetComponent<Animator>();
             if (animator == null) animator = GetComponentInChildren<Animator>();
@@ -81,6 +87,32 @@ namespace Cardini.Motion
         {
             if (enabled && animator != null)
                 animator.SetTrigger(_hashLand);
+        }
+
+        public void TriggerVault()
+        {
+            if (enabled && animator != null)
+            {
+                animator.SetTrigger(_hashVault);
+                animator.SetBool(_hashIsVaulting, true);
+                Debug.Log("[Animator] Vault animation triggered");
+            }
+        }
+
+        public void SetVaultProgress(float progress)
+        {
+            if (enabled && animator != null)
+            {
+                animator.SetFloat(_hashVaultProgress, progress, _vaultProgressDampTime, Time.deltaTime);
+
+                // Auto-end vaulting when progress complete
+                if (progress >= 1f)
+                {
+                    animator.SetBool(_hashIsVaulting, false);
+                    Debug.Log("[Animator] Vault animation completed");
+                }
+            }
+
         }
     }
 }

@@ -54,6 +54,22 @@ namespace Cardini.Motion
         public float DoubleJumpScalableForwardSpeed_Jog = 1f; 
         public float DoubleJumpScalableForwardSpeed_Sprint = 2f; 
 
+        [Header("Vaulting")]
+        [Tooltip("Speed during vault execution")]
+        public float VaultSpeed = 8f;
+
+        [Tooltip("How long the vault animation/movement takes")]
+        public float VaultDuration = 0.8f;
+
+        [Tooltip("If true, player must press jump button to vault. If false, auto-vault when conditions met.")]
+        public bool RequireButtonForVault = true;
+
+        [Tooltip("Cooldown period after vaulting before another vault can be initiated")]
+        public float VaultCooldown = 0.5f;
+
+        [Tooltip("If true, vault motion follows the detected trajectory. If false, uses simple linear interpolation.")]
+        public bool UseDetectedTrajectory = true;
+
         [Header("Misc")]
         public Vector3 Gravity = new Vector3(0, -30f, 0);
     }
