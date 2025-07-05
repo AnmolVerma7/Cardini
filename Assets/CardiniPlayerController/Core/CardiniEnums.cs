@@ -29,7 +29,7 @@ namespace Cardini.Motion
         Jumping,     // Regular Jump
         // DoubleJumping, // Double Jump
         Falling,
-        WallRunning, // Or will be replaced by StickyMovement
+        WallRunning, 
         WallJumping,
         Teleporting,
         Vaulting,

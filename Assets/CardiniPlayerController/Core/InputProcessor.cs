@@ -55,11 +55,11 @@ namespace Cardini.Motion
             context.Crouch.Released = inputBridge.Crouch.WasReleasedThisFrame; // FIXED!
             
             // Debug the input states
-            if (context.Sprint.Pressed || context.Crouch.Pressed)
-            {
-                Debug.Log($"[INPUT] Sprint: P={context.Sprint.Pressed} H={context.Sprint.Held} R={context.Sprint.Released}");
-                Debug.Log($"[INPUT] Crouch: P={context.Crouch.Pressed} H={context.Crouch.Held} R={context.Crouch.Released}");
-            }
+            // if (context.Sprint.Pressed || context.Crouch.Pressed)
+            // {
+            //     Debug.Log($"[INPUT] Sprint: P={context.Sprint.Pressed} H={context.Sprint.Held} R={context.Sprint.Released}");
+            //     Debug.Log($"[INPUT] Crouch: P={context.Crouch.Pressed} H={context.Crouch.Held} R={context.Crouch.Released}");
+            // }
         }
 
         private void UpdateInputTiming(ref InputContext context, float deltaTime)
@@ -113,7 +113,7 @@ namespace Cardini.Motion
                 if (context.Crouch.Pressed)
                 {
                     shouldCancel = true;
-                    Debug.Log($"[INPUT] Slide cancel requested (Toggle mode)");
+                    // Debug.Log($"[INPUT] Slide cancel requested (Toggle mode)");
                 }
             }
             else
@@ -122,7 +122,7 @@ namespace Cardini.Motion
                 if (context.Crouch.Released)
                 {
                     shouldCancel = true;
-                    Debug.Log($"[INPUT] Slide cancel requested (Hold mode)");
+                    // Debug.Log($"[INPUT] Slide cancel requested (Hold mode)");
                 }
             }
 
@@ -143,13 +143,13 @@ namespace Cardini.Motion
     context.Slide.CanInitiateSlide = canInitiateSlide;
 
     // DEBUG: Log all the conditions
-    if (context.Crouch.Pressed)
-    {
-        Debug.Log($"[SLIDE DEBUG] Crouch pressed! CanInitiate: {canInitiateSlide}");
-        Debug.Log($"[SLIDE DEBUG] IsSprinting: {context.IsSprinting}, IsMoving: {context.IsMoving}");
-        Debug.Log($"[SLIDE DEBUG] HoldDuration: {context.Crouch.HoldDuration:F3}, MinRequired: {context.Slide.MinHoldTimeForSlide:F3}");
-        Debug.Log($"[SLIDE DEBUG] CurrentMovementState: {currentMovementState}");
-    }
+    // if (context.Crouch.Pressed)
+    // {
+    //     Debug.Log($"[SLIDE DEBUG] Crouch pressed! CanInitiate: {canInitiateSlide}");
+    //     Debug.Log($"[SLIDE DEBUG] IsSprinting: {context.IsSprinting}, IsMoving: {context.IsMoving}");
+    //     Debug.Log($"[SLIDE DEBUG] HoldDuration: {context.Crouch.HoldDuration:F3}, MinRequired: {context.Slide.MinHoldTimeForSlide:F3}");
+    //     Debug.Log($"[SLIDE DEBUG] CurrentMovementState: {currentMovementState}");
+    // }
 
     if (canInitiateSlide && context.Crouch.Pressed)
     {
@@ -256,7 +256,7 @@ namespace Cardini.Motion
             if (context.Slide.InitiationRequested && !context.Slide.CanInitiateSlide)
             {
                 context.Slide.InitiationRequested = false;
-                Debug.Log($"[INPUT] Slide initiation cleared - conditions no longer met");
+                // Debug.Log($"[INPUT] Slide initiation cleared - conditions no longer met");
             }
         }
     }

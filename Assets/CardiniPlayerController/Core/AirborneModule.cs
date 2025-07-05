@@ -40,8 +40,21 @@ namespace Cardini.Motion
 
             if (_initiatedByJumpThisFrame)
             {
-                Controller.SetMovementState(CharacterMovementState.Jumping);
-                Controller.SetJumpedThisFrame(true); // Let controller know a jump was physically executed
+                // Controller.SetMovementState(CharacterMovementState.Jumping);
+                // Controller.SetJumpedThisFrame(true); // Let controller know a jump was physically executed
+                // PlayerAnimator?.TriggerJump();
+
+                // **NEW CHECK FOR WALL JUMP FIRST - But it still changes to "Jumping" state**
+                if (Controller.WasWallJumpExecuted())
+                {
+                    Controller.SetMovementState(CharacterMovementState.WallJumping);
+                }
+                else
+                {
+                    Controller.SetMovementState(CharacterMovementState.Jumping);
+                }
+                
+                Controller.SetJumpedThisFrame(true);
                 PlayerAnimator?.TriggerJump();
             }
             else

@@ -47,6 +47,6 @@ MonoBehaviour:
   VaultSpeed: 15
   VaultDuration: 0.5
   RequireButtonForVault: 1
-  VaultCooldown: 0.5
+  VaultCooldown: 0
   UseDetectedTrajectory: 1
   Gravity: {x: 0, y: -30, z: 0}

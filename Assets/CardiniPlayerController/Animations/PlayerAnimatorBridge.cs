@@ -19,6 +19,8 @@ namespace Cardini.Motion
         private readonly int _hashMovementState = Animator.StringToHash("MovementState");
         private readonly int _hashLand = Animator.StringToHash("Land");
         private readonly int _hashIsSliding = Animator.StringToHash("IsSliding");
+        private readonly int _hashIsWallRunning = Animator.StringToHash("IsWallRunning");
+        private readonly int _hashWallDirection = Animator.StringToHash("WallRunDirection");
 
         // Vaulting Animation Parameters
         private readonly int _hashVault = Animator.StringToHash("Vault");
@@ -56,6 +58,15 @@ namespace Cardini.Motion
         public void SetSliding(bool isSliding)
         {
             if (enabled) animator.SetBool(_hashIsSliding, isSliding);
+        }
+
+        public void SetWallRunning(bool isWallRunning, float wallDirection)
+        {
+            if (enabled)
+            {
+                animator.SetBool(_hashIsWallRunning, isWallRunning);
+                animator.SetFloat(_hashWallDirection, wallDirection);
+            }
         }
 
         public void SetLocomotionSpeeds(float normalizedSpeed, float velocityX, float velocityZ)

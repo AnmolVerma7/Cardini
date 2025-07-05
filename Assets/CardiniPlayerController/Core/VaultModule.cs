@@ -18,7 +18,7 @@ namespace Cardini.Motion
         private Vector3 _vaultTargetPosition;
         private static float _lastVaultTime = -999f; // Static for cooldown across instances
 
-        public override int Priority => 100; // High priority - takes precedence over grounded locomotion
+        public override int Priority => 10; // High priority - takes precedence over grounded locomotion
 
         public override CharacterMovementState AssociatedPrimaryMovementState => CharacterMovementState.Vaulting;
 
@@ -42,7 +42,7 @@ namespace Cardini.Motion
             
             if (vaultDetector == null)
             {
-                Debug.LogError($"VaultModule on {gameObject.name}: VaultDetector not found! Please assign or add VaultDetector component.", this);
+                // Debug.LogError($"VaultModule on {gameObject.name}: VaultDetector not found! Please assign or add VaultDetector component.", this);
             }
         }
 
@@ -52,7 +52,7 @@ namespace Cardini.Motion
             bool result = CheckVaultConditions();
             if (Controller.IsSprinting || Controller.IsJumpRequested())
             {
-                Debug.Log($"[VaultModule] CanEnterState: {result} - Sprint:{Controller.IsSprinting}, Jump:{Controller.IsJumpRequested()}, InZone:{vaultDetector?.CurrentVaultData.inInitiationZone ?? false}");
+                // Debug.Log($"[VaultModule] CanEnterState: {result} - Sprint:{Controller.IsSprinting}, Jump:{Controller.IsJumpRequested()}, InZone:{vaultDetector?.CurrentVaultData.inInitiationZone ?? false}");
             }
             return result;
         }
@@ -68,8 +68,8 @@ namespace Cardini.Motion
                 
                 if (vaultComplete || landedEarly)
                 {
-                    Debug.Log($"[VaultModule] Vault ending - Complete:{vaultComplete}, LandedEarly:{landedEarly}");
-                    return false; // Allow transition out
+                    // Debug.Log($"[VaultModule] Vault ending - Complete:{vaultComplete}, LandedEarly:{landedEarly}");
+                    return false;
                 }
                 return true; // Stay active while vaulting
             }
@@ -79,7 +79,7 @@ namespace Cardini.Motion
             // Basic requirements from base class (but skip sprint requirement during vault)
             if (Conditions.RequireGrounded && !Motor.GroundingStatus.IsStableOnGround) 
             {
-                Debug.Log("[VaultModule] Not grounded");
+                // Debug.Log("[VaultModule] Not grounded");
                 return false;
             }
             if (Conditions.RequireAirborne && Motor.GroundingStatus.IsStableOnGround) return false;
@@ -97,34 +97,34 @@ namespace Cardini.Motion
             // 2. Must be on stable ground (vaulting from ground only for now)
             if (!Motor.GroundingStatus.IsStableOnGround) 
             {
-                Debug.Log("[VaultModule] Not on stable ground");
+                // Debug.Log("[VaultModule] Not on stable ground");
                 return false;
             }
             
             // 3. Check cooldown
             if (Time.time - _lastVaultTime < Settings.VaultCooldown) 
             {
-                Debug.Log($"[VaultModule] Cooldown active: {Time.time - _lastVaultTime:F2}s < {Settings.VaultCooldown:F2}s");
+                // Debug.Log($"[VaultModule] Cooldown active: {Time.time - _lastVaultTime:F2}s < {Settings.VaultCooldown:F2}s");
                 return false;
             }
             
             // 4. VaultDetector must be available and detecting a vault
             if (vaultDetector == null) 
             {
-                Debug.LogError("[VaultModule] VaultDetector is null!");
+                // Debug.LogError("[VaultModule] VaultDetector is null!");
                 return false;
             }
             
             if (!vaultDetector.CurrentVaultData.canVault) 
             {
-                Debug.Log("[VaultModule] VaultDetector says canVault = false");
+                // Debug.Log("[VaultModule] VaultDetector says canVault = false");
                 return false;
             }
             
             // 5. Must be in initiation zone
             if (!vaultDetector.CurrentVaultData.inInitiationZone) 
             {
-                Debug.Log("[VaultModule] Not in initiation zone");
+                // Debug.Log("[VaultModule] Not in initiation zone");
                 return false;
             }
             
@@ -133,7 +133,7 @@ namespace Cardini.Motion
             {
                 if (!Controller.IsJumpRequested()) 
                 {
-                    Debug.Log("[VaultModule] Jump button required but not pressed");
+                    // Debug.Log("[VaultModule] Jump button required but not pressed");
                     return false;
                 }
             }
@@ -142,17 +142,17 @@ namespace Cardini.Motion
             var vaultData = vaultDetector.CurrentVaultData;
             if (Settings.UseDetectedTrajectory && (vaultData.fullTrajectoryPoints == null || vaultData.fullTrajectoryPoints.Length < 2))
             {
-                Debug.LogWarning("[VaultModule] No valid trajectory detected");
+                // Debug.LogWarning("[VaultModule] No valid trajectory detected");
                 return false;
             }
             
-            Debug.Log("[VaultModule] ALL CONDITIONS MET - Should vault!");
+            // Debug.Log("[VaultModule] ALL CONDITIONS MET - Should vault!");
             return true;
         }
 
         public override void OnEnterState()
         {
-            Debug.Log("[VaultModule] Starting vault!");
+            // Debug.Log("[VaultModule] Starting vault!");
             
             _isVaulting = true;
             _vaultStartTime = Time.time;
@@ -177,12 +177,12 @@ namespace Cardini.Motion
             // Animation call (commented for now as requested)
             PlayerAnimator?.TriggerVault();
             
-            Debug.Log($"[VaultModule] Vault trajectory has {_currentVaultTrajectory?.Length ?? 0} points");
+            // Debug.Log($"[VaultModule] Vault trajectory has {_currentVaultTrajectory?.Length ?? 0} points");
         }
 
         public override void OnExitState()
         {
-            Debug.Log("[VaultModule] Vault completed!");
+            // Debug.Log("[VaultModule] Vault completed!");
 
             _isVaulting = false;
             _vaultProgress = 0f;
@@ -251,7 +251,7 @@ namespace Cardini.Motion
             if (_vaultProgress >= 1f)
             {
                 // Vault finished - the module system will transition us out
-                Debug.Log("[VaultModule] Vault progress complete");
+                // Debug.Log("[VaultModule] Vault progress complete");
             }
         }
 
@@ -265,8 +265,8 @@ namespace Cardini.Motion
             // If we've landed and vault is complete, allow transition out
             if (_isVaulting && _vaultProgress >= 0.8f && Motor.GroundingStatus.IsStableOnGround)
             {
-                Debug.Log("[VaultModule] Landed during vault - completing early");
-                _vaultProgress = 1f; // Force completion
+                // Debug.Log("[VaultModule] Landed during vault - completing early");
+                _vaultProgress = 1f;
             }
         }
 
