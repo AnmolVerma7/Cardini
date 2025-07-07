@@ -1,31 +1,23 @@
 using UnityEngine;
-using KinematicCharacterController;
+
 
 namespace Cardini.Motion
 {
+    /// <summary>
+    /// Handles airborne movement including jumping, double jumping, wall jumping, and falling.
+    /// Manages air control, coyote time, and state transitions between different airborne states.
+    /// </summary>
     public class AirborneLocomotionModule : MovementModuleBase
     {
-        private bool _initiatedByJumpThisFrame = false; // Was this airborne state started by a jump this activation?
+        private bool _initiatedByJumpThisFrame = false;
+        private CharacterMovementState _currentAirborneState = CharacterMovementState.Falling;
+        private bool _enteredDueToWallJump = false;
 
-        public override int Priority => 2; // Same base priority as Grounded for now
-
-        public override CharacterMovementState AssociatedPrimaryMovementState
-        {
-            get
-            {
-                // If we still have upward velocity from a jump or were recently jumped
-                if (Controller._jumpedThisFrameInternal || Motor.Velocity.y > 0.1f && Controller.CurrentMovementState == CharacterMovementState.Jumping)
-                {
-                    return CharacterMovementState.Jumping;
-                }
-                return CharacterMovementState.Falling;
-            }
-        }
+        public override int Priority => 3;
+        public override CharacterMovementState AssociatedPrimaryMovementState => _currentAirborneState;
 
         public override bool CanEnterState()
         {
-            // This module can enter if the character is NOT on stable ground
-            // AND the major state is Locomotion
             return !Motor.GroundingStatus.IsStableOnGround &&
                    Controller.CurrentMajorState == CharacterState.Locomotion &&
                    CommonChecks();
@@ -33,161 +25,63 @@ namespace Cardini.Motion
 
         public override void OnEnterState()
         {
-            // Check if the Controller flagged that this airborne state was due to a jump execution
-            // This flag would be set by CardiniController right before activating this module
-            // if ExecuteJump() was called.
-            _initiatedByJumpThisFrame = Controller.ConsumeJumpExecutionIntent(); // New method in CardiniController
+            // Capture jump states before consuming anything
+            _enteredDueToWallJump = Controller.WasWallJumpExecuted();
+            _initiatedByJumpThisFrame = Controller.ConsumeJumpExecutionIntent();
 
             if (_initiatedByJumpThisFrame)
             {
-                // Controller.SetMovementState(CharacterMovementState.Jumping);
-                // Controller.SetJumpedThisFrame(true); // Let controller know a jump was physically executed
-                // PlayerAnimator?.TriggerJump();
-
-                // **NEW CHECK FOR WALL JUMP FIRST - But it still changes to "Jumping" state**
-                if (Controller.WasWallJumpExecuted())
-                {
-                    Controller.SetMovementState(CharacterMovementState.WallJumping);
-                }
-                else
-                {
-                    Controller.SetMovementState(CharacterMovementState.Jumping);
-                }
-                
+                DetermineJumpType();
                 Controller.SetJumpedThisFrame(true);
                 PlayerAnimator?.TriggerJump();
             }
             else
             {
-                // If not initiated by jump, means we fell off an edge
+                // Fell off edge
+                _currentAirborneState = CharacterMovementState.Falling;
                 Controller.SetMovementState(CharacterMovementState.Falling);
-                Controller.SetLastGroundedSpeedTier(Controller.CurrentSpeedTierForJump); // Store speed before falling
+                Controller.SetLastGroundedSpeedTier(Controller.CurrentSpeedTierForJump);
             }
-            Controller.TimeSinceLastAbleToJump = 0.001f; // Start counting time since last able to jump (now airborne)
+            
+            Controller.TimeSinceLastAbleToJump = 0.001f;
             PlayerAnimator?.SetGrounded(false);
         }
 
         public override void OnExitState()
         {
-            _initiatedByJumpThisFrame = false;
-            // Make sure we clear any lingering jump states in the animator
+            ResetAirborneState();
             PlayerAnimator?.SetGrounded(true);
         }
 
         public override void UpdateRotation(ref Quaternion currentRotation, float deltaTime)
         {
-            // Typically, air rotation is similar to ground rotation logic
             Controller.HandleStandardRotation(ref currentRotation, deltaTime);
         }
 
         public override void UpdateVelocity(ref Vector3 currentVelocity, float deltaTime)
-        
         {
             if (Settings == null) return;
-            // Double Jump Logic Handle double jump
-            if (Settings.AllowDoubleJump)
+            
+            bool executedJumpThisFrame = false;
+            
+            // Handle jump abilities with proper priority - coyote jump takes precedence over double jump
+            if (TryExecuteCoyoteJump())
             {
-                // Conditions for double jump: jump requested, first jump consumed, double jump not yet consumed, and character is airborne
-                if (Controller.IsJumpRequested() && Controller.IsJumpConsumed() && !Controller.IsDoubleJumpConsumed() && !Motor.GroundingStatus.FoundAnyGround)
-                {
-                    Debug.Log($"[Airborne] DOUBLE JUMP EXECUTION ALLOWED! Current SpeedTier: {Controller.CurrentSpeedTierForJump}");
-
-                    float actualJumpUpSpeed;
-                    float actualJumpForwardSpeed;
-
-                    // Tiered double jump speeds based on speed before first jump (LastGroundedSpeedTier)
-                    if (Controller.LastGroundedSpeedTier >= Settings.MaxSprintSpeed * 0.9f)
-                    {
-                        actualJumpUpSpeed = Settings.DoubleJumpUpSpeed_Sprint;
-                        actualJumpForwardSpeed = Settings.DoubleJumpScalableForwardSpeed_Sprint;
-                    }
-                    else if (Controller.LastGroundedSpeedTier >= Settings.MaxJogSpeed * 0.9f)
-                    {
-                        actualJumpUpSpeed = Settings.DoubleJumpUpSpeed_Jog;
-                        actualJumpForwardSpeed = Settings.DoubleJumpScalableForwardSpeed_Jog;
-                    }
-                    else // Idle/Walk speed for double jump
-                    {
-                        actualJumpUpSpeed = Settings.DoubleJumpUpSpeed_IdleWalk;
-                        actualJumpForwardSpeed = Settings.DoubleJumpScalableForwardSpeed_IdleWalk;
-                    }
-
-                    // Tell controller to execute the jump mechanics (this will ForceUnground, add velocity, consume jump request)
-                    Controller.ExecuteJump(actualJumpUpSpeed, actualJumpForwardSpeed, Controller.MoveInputVector);
-                    
-                    Controller.SetDoubleJumpConsumed(true); // Mark double jump as consumed
-                    // Controller.SetJumpedThisFrame(true); // ExecuteJump already sets _jumpExecutionIntentInternal which leads to this.
-
-                    Controller.SetMovementState(CharacterMovementState.Jumping); // Explicitly set to Jumping state
-                }
+                executedJumpThisFrame = true;
             }
-
-            // --- Handle Coyote Jump Initiation (if requested and conditions met) ---
-            if (Controller.IsJumpRequested() &&
-                !Controller.IsJumpConsumed() && 
-                Controller.TimeSinceLastAbleToJump > 0f && // Must have been airborne for at least a tick
-                Controller.TimeSinceLastAbleToJump <= Settings.JumpPostGroundingGraceTime &&
-                !Motor.GroundingStatus.FoundAnyGround)
+            else if (TryExecuteDoubleJump())
             {
-                // This is a Coyote Jump
-                float jumpSpeedTierForCoyote = Controller.LastGroundedSpeedTier; // Use speed before falling
-
-                float actualJumpUpSpeed = Settings.JumpUpSpeed_IdleWalk; // Default for safety
-                float actualJumpForwardSpeed = Settings.JumpScalableForwardSpeed_IdleWalk;
-
-                if (jumpSpeedTierForCoyote >= Settings.MaxSprintSpeed * 0.9f)
-                {
-                    actualJumpUpSpeed = Settings.JumpUpSpeed_Sprint;
-                    actualJumpForwardSpeed = Settings.JumpScalableForwardSpeed_Sprint;
-                }
-                else if (jumpSpeedTierForCoyote >= Settings.MaxJogSpeed * 0.9f)
-                {
-                    actualJumpUpSpeed = Settings.JumpUpSpeed_Jog;
-                    actualJumpForwardSpeed = Settings.JumpScalableForwardSpeed_Jog;
-                }
-
-                // Tell controller to execute the jump mechanics
-                Controller.ExecuteJump(actualJumpUpSpeed, actualJumpForwardSpeed, Controller.MoveInputVector);
-                // ExecuteJump already sets _jumpConsumed, _jumpedThisFrame, _jumpRequested = false
-
-                // Set current movement state directly here, as ExecuteJump might not know the context
-                Controller.SetMovementState(CharacterMovementState.Jumping);
+                executedJumpThisFrame = true;
             }
-
-            // --- Jump Execution (if flagged by OnEnterState) ---
-            // This part is now handled by CardiniController.ExecuteJump() which adds to _internalVelocityAdd
-            // This module now focuses on maintaining air physics *after* that initial impulse.
-            // So, _initiatedByJumpThisFrame is more for setting the initial CharacterMovementState.Jumping.
-
-            // --- Air Movement Logic (from CardiniController) ---
-            if (Controller.MoveInputVector.sqrMagnitude > 0f)
-            {
-                Vector3 addedVelocity = Controller.MoveInputVector * Settings.AirAccelerationSpeed * deltaTime;
-                Vector3 currentVelocityOnInputsPlane = Vector3.ProjectOnPlane(currentVelocity, Motor.CharacterUp);
-
-                if (currentVelocityOnInputsPlane.magnitude < Settings.MaxAirMoveSpeed)
-                {
-                    Vector3 newTotal = Vector3.ClampMagnitude(currentVelocityOnInputsPlane + addedVelocity, Settings.MaxAirMoveSpeed);
-                    addedVelocity = newTotal - currentVelocityOnInputsPlane;
-                }
-                else
-                {
-                    if (Vector3.Dot(currentVelocityOnInputsPlane, addedVelocity) > 0f)
-                    {
-                        addedVelocity = Vector3.ProjectOnPlane(addedVelocity, currentVelocityOnInputsPlane.normalized);
-                    }
-                }
-                // KCC Example prevents air-climbing sloped walls. We might want this or not.
-                // For now, let's keep it simpler. If we add it back, it uses Motor.GroundingStatus.FoundAnyGround
-                // and Motor.GroundingStatus.GroundNormal.
-                currentVelocity += addedVelocity;
-            }
-
-            // --- Apply Gravity ---
-            currentVelocity += Settings.Gravity * deltaTime;
-
-            // --- Apply Drag ---
-            currentVelocity *= (1f / (1f + (Settings.Drag * deltaTime)));
+            
+            // Apply air movement
+            ApplyAirMovement(ref currentVelocity, deltaTime);
+            
+            // Apply physics
+            ApplyAirPhysics(ref currentVelocity, deltaTime);
+            
+            // Update airborne state transitions
+            UpdateAirborneStateTransitions(executedJumpThisFrame);
         }
 
         public override void AfterCharacterUpdate(float deltaTime)
@@ -198,11 +92,205 @@ namespace Cardini.Motion
 
         public override void PostGroundingUpdate(float deltaTime)
         {
-            // This module is active only when airborne.
             if (Motor.GroundingStatus.IsStableOnGround)
             {
                 Controller.OnLandedInternal(); 
             }
         }
+
+        #region Private Methods
+
+        private void DetermineJumpType()
+        {
+            if (_enteredDueToWallJump)
+            {
+                _currentAirborneState = CharacterMovementState.WallJumping;
+                Controller.SetMovementState(CharacterMovementState.WallJumping);
+            }
+            else
+            {
+                _currentAirborneState = CharacterMovementState.Jumping;
+                Controller.SetMovementState(CharacterMovementState.Jumping);
+            }
+        }
+
+        private void ResetAirborneState()
+        {
+            _initiatedByJumpThisFrame = false;
+            _enteredDueToWallJump = false;
+            _currentAirborneState = CharacterMovementState.Falling;
+        }
+
+        private bool TryExecuteDoubleJump()
+        {
+            if (!Settings.AllowDoubleJump) return false;
+
+            // Regular double jump: after a normal jump (ground or coyote), player can double jump
+            bool regularDoubleJump = Controller.IsJumpRequested() && 
+                                   Controller.IsJumpConsumed() && 
+                                   !Controller.IsDoubleJumpConsumed() && 
+                                   !Motor.GroundingStatus.FoundAnyGround;
+            
+            // Falling double jump: if player falls off edge without jumping, they can "double jump" from falling state
+            bool fallingDoubleJump = Controller.IsJumpRequested() && 
+                                    _currentAirborneState == CharacterMovementState.Falling &&
+                                    !Controller.IsDoubleJumpConsumed() && 
+                                    !Motor.GroundingStatus.FoundAnyGround;
+            
+            if (regularDoubleJump || fallingDoubleJump)
+            {
+                ExecuteDoubleJump(fallingDoubleJump);
+                return true;
+            }
+            
+            return false;
+        }
+
+        private void ExecuteDoubleJump(bool wasFalling)
+        {
+            var (upSpeed, forwardSpeed) = GetDoubleJumpSpeeds();
+            
+            Controller.ExecuteJump(upSpeed, forwardSpeed, Controller.MoveInputVector);
+            Controller.SetDoubleJumpConsumed(true);
+            
+            if (wasFalling)
+                Controller.SetJumpConsumed(true);
+
+            _currentAirborneState = CharacterMovementState.DoubleJumping;
+            Controller.SetMovementState(CharacterMovementState.DoubleJumping);
+        }
+
+        private (float upSpeed, float forwardSpeed) GetDoubleJumpSpeeds()
+        {
+            float speedTier = Controller.LastGroundedSpeedTier;
+            
+            if (speedTier >= Settings.MaxSprintSpeed * 0.9f)
+                return (Settings.DoubleJumpUpSpeed_Sprint, Settings.DoubleJumpScalableForwardSpeed_Sprint);
+            
+            if (speedTier >= Settings.MaxJogSpeed * 0.9f)
+                return (Settings.DoubleJumpUpSpeed_Jog, Settings.DoubleJumpScalableForwardSpeed_Jog);
+            
+            return (Settings.DoubleJumpUpSpeed_IdleWalk, Settings.DoubleJumpScalableForwardSpeed_IdleWalk);
+        }
+
+        private bool TryExecuteCoyoteJump()
+        {
+            // Coyote jump has priority over double jump when both conditions might be met
+            bool canCoyoteJump = Controller.IsJumpRequested() &&
+                                !Controller.IsJumpConsumed() && 
+                                Controller.TimeSinceLastAbleToJump > 0f &&
+                                Controller.TimeSinceLastAbleToJump <= Settings.JumpPostGroundingGraceTime &&
+                                !Motor.GroundingStatus.FoundAnyGround;
+
+            if (canCoyoteJump)
+            {
+                ExecuteCoyoteJump();
+                return true;
+            }
+            
+            return false;
+        }
+
+        private void ExecuteCoyoteJump()
+        {
+            var (upSpeed, forwardSpeed) = GetCoyoteJumpSpeeds();
+            
+            Controller.ExecuteJump(upSpeed, forwardSpeed, Controller.MoveInputVector);
+            
+            _currentAirborneState = CharacterMovementState.Jumping;
+            Controller.SetMovementState(CharacterMovementState.Jumping);
+        }
+
+        private (float upSpeed, float forwardSpeed) GetCoyoteJumpSpeeds()
+        {
+            float speedTier = Controller.LastGroundedSpeedTier;
+            
+            if (speedTier >= Settings.MaxSprintSpeed * 0.9f)
+                return (Settings.JumpUpSpeed_Sprint, Settings.JumpScalableForwardSpeed_Sprint);
+            
+            if (speedTier >= Settings.MaxJogSpeed * 0.9f)
+                return (Settings.JumpUpSpeed_Jog, Settings.JumpScalableForwardSpeed_Jog);
+            
+            return (Settings.JumpUpSpeed_IdleWalk, Settings.JumpScalableForwardSpeed_IdleWalk);
+        }
+
+        private void ApplyAirMovement(ref Vector3 currentVelocity, float deltaTime)
+        {
+            if (Controller.MoveInputVector.sqrMagnitude <= 0f) return;
+
+            float targetAirMoveSpeed = CalculateTargetAirMoveSpeed();
+            Vector3 addedVelocity = Controller.MoveInputVector * Settings.AirAccelerationSpeed * deltaTime;
+            Vector3 currentVelocityOnInputsPlane = Vector3.ProjectOnPlane(currentVelocity, Motor.CharacterUp);
+
+            if (currentVelocityOnInputsPlane.magnitude < targetAirMoveSpeed)
+            {
+                Vector3 newTotal = Vector3.ClampMagnitude(currentVelocityOnInputsPlane + addedVelocity, targetAirMoveSpeed);
+                addedVelocity = newTotal - currentVelocityOnInputsPlane;
+            }
+            else
+            {
+                // Allow air strafing
+                if (Vector3.Dot(currentVelocityOnInputsPlane, addedVelocity) > 0f)
+                {
+                    addedVelocity = Vector3.ProjectOnPlane(addedVelocity, currentVelocityOnInputsPlane.normalized);
+                }
+            }
+            
+            currentVelocity += addedVelocity;
+        }
+
+        private float CalculateTargetAirMoveSpeed()
+        {
+            float groundedSpeedTier = Controller.LastGroundedSpeedTier;
+            float targetSpeed = Mathf.Min(groundedSpeedTier, Settings.MaxAirMoveSpeed);
+            float minimumAirSpeed = Settings.MaxWalkSpeed * 0.5f;
+            
+            return Mathf.Max(targetSpeed, minimumAirSpeed);
+        }
+
+        private void ApplyAirPhysics(ref Vector3 currentVelocity, float deltaTime)
+        {
+            // Enforce speed cap
+            EnforceHorizontalSpeedCap(ref currentVelocity, deltaTime);
+            
+            // Apply gravity and drag
+            currentVelocity += Settings.Gravity * deltaTime;
+            currentVelocity *= (1f / (1f + (Settings.Drag * deltaTime)));
+        }
+
+        private void EnforceHorizontalSpeedCap(ref Vector3 currentVelocity, float deltaTime)
+        {
+            Vector3 horizontalVelocity = Vector3.ProjectOnPlane(currentVelocity, Motor.CharacterUp);
+            
+            if (horizontalVelocity.magnitude > Settings.MaxAirMoveSpeed)
+            {
+                float decelerationRate = Settings.AirAccelerationSpeed * 2f;
+                float currentHorizontalSpeed = horizontalVelocity.magnitude;
+                float newHorizontalSpeed = Mathf.MoveTowards(currentHorizontalSpeed, Settings.MaxAirMoveSpeed, decelerationRate * deltaTime);
+                
+                Vector3 verticalVelocity = Vector3.Project(currentVelocity, Motor.CharacterUp);
+                currentVelocity = horizontalVelocity.normalized * newHorizontalSpeed + verticalVelocity;
+            }
+        }
+
+        private void UpdateAirborneStateTransitions(bool executedJumpThisFrame)
+        {
+            // Don't transition to falling if we just executed a jump or if we're in WallJumping and still moving upward
+            bool shouldStayInJumpingState = executedJumpThisFrame || 
+                                          (_currentAirborneState == CharacterMovementState.WallJumping && 
+                                           Motor.Velocity.y > -0.5f);
+                                           
+            bool isInJumpingState = _currentAirborneState == CharacterMovementState.Jumping || 
+                                   _currentAirborneState == CharacterMovementState.DoubleJumping || 
+                                   _currentAirborneState == CharacterMovementState.WallJumping;
+
+            if (!shouldStayInJumpingState && isInJumpingState && Motor.Velocity.y < -0.5f)
+            {
+                _currentAirborneState = CharacterMovementState.Falling;
+                Controller.SetMovementState(CharacterMovementState.Falling);
+            }
+        }
+
+        #endregion
     }
 }

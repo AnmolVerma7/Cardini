@@ -27,14 +27,12 @@ namespace Cardini.Motion
         Crouching,
         Sliding,
         Jumping,     // Regular Jump
-        // DoubleJumping, // Double Jump
         Falling,
-        WallRunning, 
+        WallRunning,
         WallJumping,
         Teleporting,
         Vaulting,
-        // Add more specific parkour/action states as you develop them:
-        // e.g., Mantling, Vaulting, LedgeGrabbing, etc.
+        DoubleJumping, 
     }
     public enum CardiniOrientationMethod
     {

@@ -478,7 +478,7 @@ PrefabInstance:
     - target: {fileID: 5866666021909216657, guid: 37bf7faac7c56544eba34afb77d0609d, type: 3}
       propertyPath: m_Controller
       value: 
-      objectReference: {fileID: 9100000, guid: 86c800d8974487246be7ad9c05403c50, type: 2}
+      objectReference: {fileID: 9100000, guid: 66339eeb7e6cb7a4c93c4dbae90f5c15, type: 2}
     - target: {fileID: 5866666021909216657, guid: 37bf7faac7c56544eba34afb77d0609d, type: 3}
       propertyPath: m_ApplyRootMotion
       value: 0
@@ -10832,23 +10832,23 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   Conditions:
     RequireGrounded: 0
-    RequireAirborne: 0
+    RequireAirborne: 1
     RequireSprint: 0
     BlockIfSprinting: 0
     MinSpeed: 0
     BlockIfCrouching: 0
   wallRunForce: 1
   maxWallRunSpeed: 15
-  minWallRunSpeed: 10
-  maxWallRunTime: 1
-  wallRunCooldown: 0.25
-  gravityCounterForce: 30
-  wallAttachForce: 5
-  wallDirectionSmoothing: 3
-  wallJumpUpForce: 10
+  minWallRunSpeed: 8
+  maxWallRunTime: 1.5
+  wallRunCooldown: 0.5
+  gravityCounterForce: 20
+  wallAttachForce: 10
+  wallDirectionSmoothing: 8
+  wallJumpUpForce: 15
   wallJumpSideForce: 10
-  wallJumpForwardForce: 2
-  maxWallJumpsPerWall: 2
+  wallJumpForwardForce: 5
+  maxWallJumpsPerWall: 1
   wallDetector: {fileID: 6607685709280838963}
 --- !u!4 &547060890
 Transform:
@@ -48095,10 +48095,10 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 6509949385530125624}
-  - {fileID: 801601201}
   - {fileID: 523059729}
   - {fileID: 989805601}
   - {fileID: 1471175865}
+  - {fileID: 801601201}
   - {fileID: 547060890}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
@@ -48654,17 +48654,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c36993386a9cee046bb570e2c589fc9d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  wallDistanceSide: 1
+  wallDistanceSide: 0.7
   wallDistanceFront: 1
   wallDistanceBack: 1
   doubleRayOffset: 0.1
   wallLayers:
     serializedVersion: 2
     m_Bits: 64
-  groundLayers:
-    serializedVersion: 2
-    m_Bits: 8
-  minHeightAboveGround: 2
+  rayHeight: 1
   minWallAngle: 80
   minWallNormalAngleChange: 15
   showGizmos: 1
@@ -48672,7 +48669,6 @@ MonoBehaviour:
   rightWallColor: {r: 0, g: 1, b: 0, a: 1}
   frontWallColor: {r: 0, g: 0, b: 1, a: 1}
   backWallColor: {r: 0.5, g: 0.5, b: 0.5, a: 1}
-  heightCheckColor: {r: 1, g: 0.92156863, b: 0.015686275, a: 1}
   wallForwardColor: {r: 0, g: 1, b: 1, a: 1}
   gizmoSphereSize: 0.1
 --- !u!222 &7466203708119895235

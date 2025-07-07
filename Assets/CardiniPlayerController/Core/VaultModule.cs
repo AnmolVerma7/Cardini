@@ -1,9 +1,12 @@
-// VaultModule.cs
 using UnityEngine;
 using KinematicCharacterController;
 
 namespace Cardini.Motion
 {
+    /// <summary>
+    /// Handles vault execution using sophisticated trajectory following or simple arc interpolation.
+    /// Integrates with VaultDetector for obstacle detection and trajectory calculation.
+    /// </summary>
     public class VaultModule : MovementModuleBase
     {
         [Header("Vault Module")]
@@ -16,193 +19,50 @@ namespace Cardini.Motion
         private Vector3[] _currentVaultTrajectory;
         private Vector3 _vaultStartPosition;
         private Vector3 _vaultTargetPosition;
-        private static float _lastVaultTime = -999f; // Static for cooldown across instances
+        private static float _lastVaultTime = -999f; // Static cooldown across instances
 
-        public override int Priority => 10; // High priority - takes precedence over grounded locomotion
-
+        public override int Priority => 6; // High priority - takes precedence over grounded locomotion
         public override CharacterMovementState AssociatedPrimaryMovementState => CharacterMovementState.Vaulting;
-
-        // Lock both velocity and rotation during vault - we handle everything
-        // public override bool LocksVelocity => _isVaulting;
-        // public override bool LocksRotation => _isVaulting;
 
         public override void Initialize(CardiniController controller)
         {
             base.Initialize(controller);
             
-            // Find VaultDetector if not assigned
             if (vaultDetector == null)
             {
-                vaultDetector = GetComponent<VaultDetector>();
-                if (vaultDetector == null)
-                {
-                    vaultDetector = GetComponentInChildren<VaultDetector>();
-                }
+                vaultDetector = GetComponent<VaultDetector>() ?? GetComponentInChildren<VaultDetector>();
             }
             
             if (vaultDetector == null)
             {
-                // Debug.LogError($"VaultModule on {gameObject.name}: VaultDetector not found! Please assign or add VaultDetector component.", this);
+                Debug.LogError($"VaultModule on {gameObject.name}: VaultDetector not found! Please assign or add VaultDetector component.", this);
             }
         }
 
         public override bool CanEnterState()
         {
-            // DEBUG: Always log when we're checking vault conditions
-            bool result = CheckVaultConditions();
-            if (Controller.IsSprinting || Controller.IsJumpRequested())
-            {
-                // Debug.Log($"[VaultModule] CanEnterState: {result} - Sprint:{Controller.IsSprinting}, Jump:{Controller.IsJumpRequested()}, InZone:{vaultDetector?.CurrentVaultData.inInitiationZone ?? false}");
-            }
-            return result;
-        }
-
-        private bool CheckVaultConditions()
-        {
-            // If we're already vaulting, we can stay active until vault completes
-            if (_isVaulting)
-            {
-                // Stay active until vault progress is complete OR we've landed
-                bool vaultComplete = _vaultProgress >= 1f;
-                bool landedEarly = _vaultProgress >= 0.8f && Motor.GroundingStatus.IsStableOnGround;
-                
-                if (vaultComplete || landedEarly)
-                {
-                    // Debug.Log($"[VaultModule] Vault ending - Complete:{vaultComplete}, LandedEarly:{landedEarly}");
-                    return false;
-                }
-                return true; // Stay active while vaulting
-            }
-            
-            // === ENTERING VAULT CONDITIONS ===
-            
-            // Basic requirements from base class (but skip sprint requirement during vault)
-            if (Conditions.RequireGrounded && !Motor.GroundingStatus.IsStableOnGround) 
-            {
-                // Debug.Log("[VaultModule] Not grounded");
-                return false;
-            }
-            if (Conditions.RequireAirborne && Motor.GroundingStatus.IsStableOnGround) return false;
-            if (Conditions.MinSpeed > 0f && Controller.Motor.BaseVelocity.magnitude < Conditions.MinSpeed) return false;
-            if (Conditions.BlockIfCrouching && Controller.IsCrouching) return false;
-            // NOTE: Skip RequireSprint and BlockIfSprinting here - we'll check manually below
-            
-            // VaultModule specific requirements:
-            // 1. Must be sprinting (for flow) - but only when entering, not while vaulting
-            if (!Controller.IsSprinting) 
-            {
-                return false; // Don't spam this log
-            }
-            
-            // 2. Must be on stable ground (vaulting from ground only for now)
-            if (!Motor.GroundingStatus.IsStableOnGround) 
-            {
-                // Debug.Log("[VaultModule] Not on stable ground");
-                return false;
-            }
-            
-            // 3. Check cooldown
-            if (Time.time - _lastVaultTime < Settings.VaultCooldown) 
-            {
-                // Debug.Log($"[VaultModule] Cooldown active: {Time.time - _lastVaultTime:F2}s < {Settings.VaultCooldown:F2}s");
-                return false;
-            }
-            
-            // 4. VaultDetector must be available and detecting a vault
-            if (vaultDetector == null) 
-            {
-                // Debug.LogError("[VaultModule] VaultDetector is null!");
-                return false;
-            }
-            
-            if (!vaultDetector.CurrentVaultData.canVault) 
-            {
-                // Debug.Log("[VaultModule] VaultDetector says canVault = false");
-                return false;
-            }
-            
-            // 5. Must be in initiation zone
-            if (!vaultDetector.CurrentVaultData.inInitiationZone) 
-            {
-                // Debug.Log("[VaultModule] Not in initiation zone");
-                return false;
-            }
-            
-            // 6. Check button requirement (ONLY when entering vault)
-            if (Settings.RequireButtonForVault)
-            {
-                if (!Controller.IsJumpRequested()) 
-                {
-                    // Debug.Log("[VaultModule] Jump button required but not pressed");
-                    return false;
-                }
-            }
-            
-            // 7. Must have valid trajectory
-            var vaultData = vaultDetector.CurrentVaultData;
-            if (Settings.UseDetectedTrajectory && (vaultData.fullTrajectoryPoints == null || vaultData.fullTrajectoryPoints.Length < 2))
-            {
-                // Debug.LogWarning("[VaultModule] No valid trajectory detected");
-                return false;
-            }
-            
-            // Debug.Log("[VaultModule] ALL CONDITIONS MET - Should vault!");
-            return true;
+            return _isVaulting ? CanContinueVault() : CanEnterVault();
         }
 
         public override void OnEnterState()
         {
-            // Debug.Log("[VaultModule] Starting vault!");
-            
-            _isVaulting = true;
-            _vaultStartTime = Time.time;
-            _vaultProgress = 0f;
-            _lastVaultTime = Time.time; // Update cooldown timer
-            
-            // Store vault data
-            var vaultData = vaultDetector.CurrentVaultData;
-            _currentVaultTrajectory = vaultData.fullTrajectoryPoints;
-            _vaultStartPosition = Controller.transform.position;
-            _vaultTargetPosition = vaultData.landingPoint;
-            
-            // Consume the jump request if it was used to trigger vault
-            if (Controller.IsJumpRequested())
-            {
-                Controller.ConsumeJumpRequest();
-            }
-            
-            // Force unground to prevent ground snapping during vault
-            Motor.ForceUnground();
-            
-            // Animation call (commented for now as requested)
-            PlayerAnimator?.TriggerVault();
-            
-            // Debug.Log($"[VaultModule] Vault trajectory has {_currentVaultTrajectory?.Length ?? 0} points");
+            InitializeVault();
         }
 
         public override void OnExitState()
         {
-            // Debug.Log("[VaultModule] Vault completed!");
-
-            _isVaulting = false;
-            _vaultProgress = 0f;
-            _currentVaultTrajectory = null;
-
-            // Animation call (commented for now as requested)
-            // PlayerAnimator?.TriggerLand();
-            PlayerAnimator?.SetVaultProgress(1f);
+            CompleteVault();
         }
 
         public override void UpdateRotation(ref Quaternion currentRotation, float deltaTime)
         {
             if (!_isVaulting) return;
             
-            // During vault, face the vault direction
+            // Face the vault direction during vault
             var vaultData = vaultDetector.CurrentVaultData;
             if (vaultData.vaultDirection != Vector3.zero)
             {
-                Vector3 targetDirection = vaultData.vaultDirection;
-                targetDirection.y = 0; // Keep horizontal
+                Vector3 targetDirection = Vector3.ProjectOnPlane(vaultData.vaultDirection, Vector3.up);
                 
                 if (targetDirection.sqrMagnitude > 0.01f)
                 {
@@ -216,57 +76,170 @@ namespace Cardini.Motion
         {
             if (!_isVaulting) return;
             
-            // Calculate vault progress (0 to 1)
+            UpdateVaultProgress();
+            Vector3 targetPosition = CalculateTargetPosition();
+            ApplyVaultMovement(ref currentVelocity, targetPosition, deltaTime);
+            
+            CheckVaultCompletion();
+        }
+
+        public override void BeforeCharacterUpdate(float deltaTime) { }
+        public override void AfterCharacterUpdate(float deltaTime) { }
+
+        public override void PostGroundingUpdate(float deltaTime)
+        {
+            // Allow early completion if landed during vault
+            if (_isVaulting && _vaultProgress >= 0.8f && Motor.GroundingStatus.IsStableOnGround)
+            {
+                _vaultProgress = 1f;
+            }
+        }
+
+        #region Private Methods - State Checking
+
+        private bool CanContinueVault()
+        {
+            // Stay active until vault completes or lands early
+            bool vaultComplete = _vaultProgress >= 1f;
+            bool landedEarly = _vaultProgress >= 0.8f && Motor.GroundingStatus.IsStableOnGround;
+            
+            return !(vaultComplete || landedEarly);
+        }
+
+        private bool CanEnterVault()
+        {
+            if (!ValidateBasicConditions()) return false;
+            if (!ValidateVaultConditions()) return false;
+            if (!ValidateButtonRequirement()) return false;
+            if (!ValidateTrajectory()) return false;
+            
+            return true;
+        }
+
+        private bool ValidateBasicConditions()
+        {
+            if (Conditions.RequireGrounded && !Motor.GroundingStatus.IsStableOnGround) return false;
+            if (Conditions.RequireAirborne && Motor.GroundingStatus.IsStableOnGround) return false;
+            if (Conditions.MinSpeed > 0f && Controller.Motor.BaseVelocity.magnitude < Conditions.MinSpeed) return false;
+            if (Conditions.BlockIfCrouching && Controller.IsCrouching) return false;
+            
+            return Controller.IsSprinting && Motor.GroundingStatus.IsStableOnGround;
+        }
+
+        private bool ValidateVaultConditions()
+        {
+            if (vaultDetector == null) return false;
+            if (Time.time - _lastVaultTime < Settings.VaultCooldown) return false;
+            
+            var vaultData = vaultDetector.CurrentVaultData;
+            return vaultData.canVault && vaultData.inInitiationZone;
+        }
+
+        private bool ValidateButtonRequirement()
+        {
+            return !Settings.RequireButtonForVault || Controller.IsJumpRequested();
+        }
+
+        private bool ValidateTrajectory()
+        {
+            if (!Settings.UseDetectedTrajectory) return true;
+            
+            var vaultData = vaultDetector.CurrentVaultData;
+            return vaultData.fullTrajectoryPoints != null && vaultData.fullTrajectoryPoints.Length >= 2;
+        }
+
+        #endregion
+
+        #region Private Methods - Vault Execution
+
+        private void InitializeVault()
+        {
+            _isVaulting = true;
+            _vaultStartTime = Time.time;
+            _vaultProgress = 0f;
+            _lastVaultTime = Time.time;
+            
+            StoreVaultData();
+            ConsumeInputs();
+            PreparePhysics();
+            UpdateAnimations();
+        }
+
+        private void StoreVaultData()
+        {
+            var vaultData = vaultDetector.CurrentVaultData;
+            _currentVaultTrajectory = vaultData.fullTrajectoryPoints;
+            _vaultStartPosition = Controller.transform.position;
+            _vaultTargetPosition = vaultData.landingPoint;
+        }
+
+        private void ConsumeInputs()
+        {
+            if (Controller.IsJumpRequested())
+            {
+                Controller.ConsumeJumpRequest();
+            }
+        }
+
+        private void PreparePhysics()
+        {
+            Motor.ForceUnground();
+        }
+
+        private void UpdateAnimations()
+        {
+            PlayerAnimator?.TriggerVault();
+        }
+
+        private void CompleteVault()
+        {
+            _isVaulting = false;
+            _vaultProgress = 0f;
+            _currentVaultTrajectory = null;
+
+            PlayerAnimator?.SetVaultProgress(1f);
+        }
+
+        private void UpdateVaultProgress()
+        {
             float vaultDuration = Settings.VaultDuration;
             _vaultProgress = Mathf.Clamp01((Time.time - _vaultStartTime) / vaultDuration);
             PlayerAnimator?.SetVaultProgress(_vaultProgress);
-            Vector3 targetPosition;
-            
+        }
+
+        private Vector3 CalculateTargetPosition()
+        {
             if (Settings.UseDetectedTrajectory && _currentVaultTrajectory != null && _currentVaultTrajectory.Length > 1)
             {
-                // Use the sophisticated trajectory from VaultDetector
-                targetPosition = GetPositionOnTrajectory(_vaultProgress);
+                return GetPositionOnTrajectory(_vaultProgress);
             }
             else
             {
-                // Fallback: simple arc interpolation
-                targetPosition = CalculateSimpleVaultPosition(_vaultProgress);
+                return CalculateSimpleVaultPosition(_vaultProgress);
             }
-            
-            // Calculate velocity needed to reach target position
+        }
+
+        private void ApplyVaultMovement(ref Vector3 currentVelocity, Vector3 targetPosition, float deltaTime)
+        {
             Vector3 currentPosition = Motor.TransientPosition;
             Vector3 positionDelta = targetPosition - currentPosition;
             
             // Set velocity to reach target in this frame
             currentVelocity = positionDelta / deltaTime;
             
-            // Clamp velocity magnitude for stability
-            float maxVaultSpeed = Settings.VaultSpeed * 2f; // Allow some overshoot for smoothness
+            // Clamp for stability
+            float maxVaultSpeed = Settings.VaultSpeed * 2f;
             if (currentVelocity.magnitude > maxVaultSpeed)
             {
                 currentVelocity = currentVelocity.normalized * maxVaultSpeed;
             }
-            
-            // Check if vault is complete
+        }
+
+        private void CheckVaultCompletion()
+        {
             if (_vaultProgress >= 1f)
             {
-                // Vault finished - the module system will transition us out
-                // Debug.Log("[VaultModule] Vault progress complete");
-            }
-        }
-
-        public override void AfterCharacterUpdate(float deltaTime)
-        {
-            // Nothing special needed here for vault
-        }
-
-        public override void PostGroundingUpdate(float deltaTime)
-        {
-            // If we've landed and vault is complete, allow transition out
-            if (_isVaulting && _vaultProgress >= 0.8f && Motor.GroundingStatus.IsStableOnGround)
-            {
-                // Debug.Log("[VaultModule] Landed during vault - completing early");
-                _vaultProgress = 1f;
+                // Vault will be transitioned out by module system
             }
         }
 
@@ -277,7 +250,7 @@ namespace Cardini.Motion
                 return Controller.transform.position;
             }
             
-            // Convert normalized progress (0-1) to trajectory point index
+            // Convert normalized progress to trajectory point index
             float floatIndex = t * (_currentVaultTrajectory.Length - 1);
             int lowerIndex = Mathf.FloorToInt(floatIndex);
             int upperIndex = Mathf.Min(lowerIndex + 1, _currentVaultTrajectory.Length - 1);
@@ -287,28 +260,27 @@ namespace Cardini.Motion
                 return _currentVaultTrajectory[lowerIndex];
             }
             
-            // Interpolate between the two points
+            // Interpolate between points
             float localT = floatIndex - lowerIndex;
             return Vector3.Lerp(_currentVaultTrajectory[lowerIndex], _currentVaultTrajectory[upperIndex], localT);
         }
 
         private Vector3 CalculateSimpleVaultPosition(float t)
         {
-            // Simple parabolic arc from start to landing point
             Vector3 start = _vaultStartPosition;
             Vector3 end = _vaultTargetPosition;
             
-            // Create a simple arc
+            // Simple parabolic arc
             Vector3 linearPosition = Vector3.Lerp(start, end, t);
-            
-            // Add vertical arc
-            float arcHeight = 1.5f; // Simple fixed arc height
-            float verticalOffset = Mathf.Sin(t * Mathf.PI) * arcHeight;
+            float verticalOffset = Mathf.Sin(t * Mathf.PI) * 1.5f; // Fixed arc height
             
             return linearPosition + Vector3.up * verticalOffset;
         }
 
-        // Optional: Gizmo visualization for debugging
+        #endregion
+
+        #region Gizmos
+
         private void OnDrawGizmosSelected()
         {
             if (_isVaulting && _currentVaultTrajectory != null)
@@ -325,5 +297,7 @@ namespace Cardini.Motion
                 Gizmos.DrawWireSphere(currentTarget, 0.2f);
             }
         }
+
+        #endregion
     }
 }

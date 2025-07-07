@@ -1,9 +1,12 @@
-// Input Processor - Handles all input logic and timing
 using UnityEngine;
 using KinematicCharacterController;
 
 namespace Cardini.Motion
 {
+    /// <summary>
+    /// Processes all input logic including timing, toggle mechanics, and slide state management.
+    /// Handles complex input interactions like slide initiation/cancellation and mutual exclusion rules.
+    /// </summary>
     public class InputProcessor
     {
         private BaseLocomotionSettingsSO _settings;
@@ -16,50 +19,36 @@ namespace Cardini.Motion
         }
 
         /// <summary>
-        /// Main processing method - call this from SetControllerInputs
+        /// Main processing method - processes all input states and timing
         /// </summary>
         public void ProcessInputs(InputBridge inputBridge, ref InputContext context, CharacterMovementState currentMovementState, float deltaTime)
         {
-            // Step 1: Update raw input states
             UpdateRawInputStates(inputBridge, ref context);
-
-            // Step 2: Update timing for all actions
             UpdateInputTiming(ref context, deltaTime);
-
-            // Step 3: Process toggle logic
             ProcessToggleLogic(ref context);
-
-            // Step 4: Process slide logic (the complex part!)
             ProcessSlideLogic(ref context, currentMovementState);
-
-            // Step 5: Apply mutual exclusion rules
             ApplyMutualExclusionRules(ref context);
-
-            // Step 6: Validate states against current conditions
             ValidateStates(ref context, currentMovementState);
         }
 
+        #region Private Methods
+
         private void UpdateRawInputStates(InputBridge inputBridge, ref InputContext context)
         {
-            // Update raw button states - FIXED property names!
+            // Update jump states
             context.Jump.Pressed = inputBridge.Jump.IsPressed;
             context.Jump.Held = inputBridge.Jump.IsHeld;
-            context.Jump.Released = inputBridge.Jump.WasReleasedThisFrame; // FIXED!
+            context.Jump.Released = inputBridge.Jump.WasReleasedThisFrame;
 
+            // Update sprint states
             context.Sprint.Pressed = inputBridge.Sprint.IsPressed;
             context.Sprint.Held = inputBridge.Sprint.IsHeld;
-            context.Sprint.Released = inputBridge.Sprint.WasReleasedThisFrame; // FIXED!
+            context.Sprint.Released = inputBridge.Sprint.WasReleasedThisFrame;
 
+            // Update crouch states
             context.Crouch.Pressed = inputBridge.Crouch.IsPressed;
             context.Crouch.Held = inputBridge.Crouch.IsHeld;
-            context.Crouch.Released = inputBridge.Crouch.WasReleasedThisFrame; // FIXED!
-            
-            // Debug the input states
-            // if (context.Sprint.Pressed || context.Crouch.Pressed)
-            // {
-            //     Debug.Log($"[INPUT] Sprint: P={context.Sprint.Pressed} H={context.Sprint.Held} R={context.Sprint.Released}");
-            //     Debug.Log($"[INPUT] Crouch: P={context.Crouch.Pressed} H={context.Crouch.Held} R={context.Crouch.Released}");
-            // }
+            context.Crouch.Released = inputBridge.Crouch.WasReleasedThisFrame;
         }
 
         private void UpdateInputTiming(ref InputContext context, float deltaTime)
@@ -78,8 +67,8 @@ namespace Cardini.Motion
                 context.SprintToggleActive = !context.SprintToggleActive;
             }
 
-            // Crouch toggle (but NOT during slide cancel!)
-            bool isSlideCancel = (context.Slide.IsSlideActive && context.Crouch.Pressed);
+            // Crouch toggle (but not during slide cancel)
+            bool isSlideCancel = context.Slide.IsSlideActive && context.Crouch.Pressed;
 
             if (_settings.UseToggleCrouch && context.Crouch.Pressed && !isSlideCancel)
             {
@@ -93,12 +82,10 @@ namespace Cardini.Motion
 
             if (context.Slide.IsSlideActive)
             {
-                // Handle slide cancellation
                 ProcessSlideCancellation(ref context);
             }
             else
             {
-                // Handle slide initiation
                 ProcessSlideInitiation(ref context, currentMovementState);
             }
         }
@@ -110,20 +97,12 @@ namespace Cardini.Motion
             if (_settings.UseToggleCrouch)
             {
                 // Toggle mode: Cancel on crouch press
-                if (context.Crouch.Pressed)
-                {
-                    shouldCancel = true;
-                    // Debug.Log($"[INPUT] Slide cancel requested (Toggle mode)");
-                }
+                shouldCancel = context.Crouch.Pressed;
             }
             else
             {
                 // Hold mode: Cancel on crouch release
-                if (context.Crouch.Released)
-                {
-                    shouldCancel = true;
-                    // Debug.Log($"[INPUT] Slide cancel requested (Hold mode)");
-                }
+                shouldCancel = context.Crouch.Released;
             }
 
             if (shouldCancel)
@@ -134,61 +113,38 @@ namespace Cardini.Motion
         }
 
         private void ProcessSlideInitiation(ref InputContext context, CharacterMovementState currentMovementState)
-{
-    // Clear any stale cancel requests when not sliding
-    context.Slide.CancelRequested = false;
-
-    // Check for slide initiation conditions
-    bool canInitiateSlide = CanInitiateSlide(context, currentMovementState);
-    context.Slide.CanInitiateSlide = canInitiateSlide;
-
-    // DEBUG: Log all the conditions
-    // if (context.Crouch.Pressed)
-    // {
-    //     Debug.Log($"[SLIDE DEBUG] Crouch pressed! CanInitiate: {canInitiateSlide}");
-    //     Debug.Log($"[SLIDE DEBUG] IsSprinting: {context.IsSprinting}, IsMoving: {context.IsMoving}");
-    //     Debug.Log($"[SLIDE DEBUG] HoldDuration: {context.Crouch.HoldDuration:F3}, MinRequired: {context.Slide.MinHoldTimeForSlide:F3}");
-    //     Debug.Log($"[SLIDE DEBUG] CurrentMovementState: {currentMovementState}");
-    // }
-
-    if (canInitiateSlide && context.Crouch.Pressed)
-    {
-        // Check minimum hold time requirement
-        if (context.Crouch.HoldDuration >= context.Slide.MinHoldTimeForSlide || 
-            context.Slide.MinHoldTimeForSlide <= 0f)
         {
-            context.Slide.InitiationRequested = true;
-            context.Slide.TimeSinceSlideRequest = 0f;
-            Debug.Log($"[INPUT] Slide initiation requested!");
+            // Clear stale cancel requests when not sliding
+            context.Slide.CancelRequested = false;
+
+            // Check initiation conditions
+            bool canInitiateSlide = CanInitiateSlide(context, currentMovementState);
+            context.Slide.CanInitiateSlide = canInitiateSlide;
+
+            if (canInitiateSlide && context.Crouch.Pressed)
+            {
+                // Check minimum hold time requirement
+                if (context.Crouch.HoldDuration >= context.Slide.MinHoldTimeForSlide || 
+                    context.Slide.MinHoldTimeForSlide <= 0f)
+                {
+                    context.Slide.InitiationRequested = true;
+                    context.Slide.TimeSinceSlideRequest = 0f;
+                }
+            }
         }
-        else
-        {
-            Debug.Log($"[SLIDE DEBUG] Hold time too short: {context.Crouch.HoldDuration:F3} < {context.Slide.MinHoldTimeForSlide:F3}");
-        }
-    }
-}
 
         private bool CanInitiateSlide(InputContext context, CharacterMovementState currentMovementState)
         {
             // Must be grounded and stable
             if (!_motor.GroundingStatus.IsStableOnGround)
-            {
                 return false;
-            }
 
             // Must not already be crouching
             if (currentMovementState == CharacterMovementState.Crouching)
-            {
                 return false;
-            }
 
             // Must be sprinting with movement
-            if (!context.IsSprinting || !context.IsMoving)
-            {
-                return false;
-            }
-
-            return true;
+            return context.IsSprinting && context.IsMoving;
         }
 
         private void ApplyMutualExclusionRules(ref InputContext context)
@@ -256,8 +212,9 @@ namespace Cardini.Motion
             if (context.Slide.InitiationRequested && !context.Slide.CanInitiateSlide)
             {
                 context.Slide.InitiationRequested = false;
-                // Debug.Log($"[INPUT] Slide initiation cleared - conditions no longer met");
             }
         }
+
+        #endregion
     }
 }

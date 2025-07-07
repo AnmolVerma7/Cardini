@@ -59,7 +59,7 @@ namespace Cardini.Motion
         private bool _wasWallRunning;
         private float _lastWallDirection; // Store last direction for proper exit animation
 
-        public override int Priority => 3; // Higher than airborne (2) and grounded (0)
+        public override int Priority => 4; // Higher than airborne (2) and grounded (0)
         public override CharacterMovementState AssociatedPrimaryMovementState => CharacterMovementState.WallRunning;
 
         public override void Initialize(CardiniController controller)
@@ -262,103 +262,130 @@ namespace Cardini.Motion
                 return;
             }
             
-            // Since we're already wall running, we know we have a valid wall
+            // Get wall vectors
             Vector3 wallNormal = _smoothedWallNormal;
             Vector3 wallForward = _smoothedWallForward;
+            Vector3 wallRight = Vector3.Cross(Motor.CharacterUp, wallNormal).normalized;
             
-            // === QUALITY OF LIFE DIRECTIONAL LOGIC ===
+            // Ensure wallRight points in the correct direction relative to wall forward
+            if (Vector3.Dot(wallRight, wallForward) < 0)
+                wallRight = -wallRight;
             
             // Get input in world space
             Vector3 inputDirection = Controller.MoveInputVector;
             float inputMagnitude = inputDirection.magnitude;
             
-            // Calculate input relative to wall forward
-            float forwardDot = Vector3.Dot(inputDirection.normalized, wallForward);
-            float sidewaysDot = Vector3.Dot(inputDirection.normalized, wallNormal);
-            
             Vector3 jumpDirection;
             string jumpType = "";
             
-            // Case 1: No Input - Pure sideways jump
+            // Case 1: No Input - Jump perpendicular away from wall
             if (inputMagnitude < 0.1f)
             {
                 jumpDirection = wallNormal;
-                jumpType = "No-Input Sideways";
-                Debug.Log($"[WallRun] {jumpType} jump - jumping directly away from wall");
+                jumpType = "No-Input Perpendicular";
             }
-            // Case 2: Mostly Forward Input - 30° angled jump
-            else if (forwardDot > 0.7f && Mathf.Abs(sidewaysDot) < 0.5f)
-            {
-                // Jump at 30 degrees away from wall while maintaining forward momentum
-                float angleInRadians = 35f * Mathf.Deg2Rad;
-                jumpDirection = wallForward + wallNormal * Mathf.Tan(angleInRadians);
-                jumpDirection.Normalize();
-                jumpType = "Forward-Angled";
-                Debug.Log($"[WallRun] {jumpType} jump - 30° angle away from wall");
-            }
-            // Case 3: Mostly Backward Input - Reverse momentum jump
-            else if (forwardDot < -0.7f && Mathf.Abs(sidewaysDot) < 0.5f)
-            {
-                jumpDirection = -wallForward * 0.5f + wallNormal;
-                jumpDirection.Normalize();
-                jumpType = "Backward-Cancel";
-                Debug.Log($"[WallRun] {jumpType} jump - canceling forward momentum");
-            }
-            // Case 4: Input Away from Wall - Boost away
-            else if (sidewaysDot > 0.7f)
-            {
-                jumpDirection = wallNormal * 1.2f + wallForward * 0.3f;
-                jumpDirection.Normalize();
-                jumpType = "Push-Away";
-                Debug.Log($"[WallRun] {jumpType} jump - boosted push away from wall");
-            }
-            // Case 5: Input Toward Wall - Shallow angle jump
-            else if (sidewaysDot < -0.7f)
-            {
-                jumpDirection = wallNormal * 0.5f + wallForward;
-                jumpDirection.Normalize();
-                jumpType = "Wall-Hug";
-                Debug.Log($"[WallRun] {jumpType} jump - shallow angle, staying close to wall");
-            }
-            // Default: Use original directional blending for diagonal inputs
             else
             {
-                // Your original system - blend based on look direction
-                Vector3 playerLookDirection = Controller.LookInputVector;
-                if (playerLookDirection.sqrMagnitude < 0.1f)
-                {
-                    playerLookDirection = Motor.CharacterForward;
-                }
-                playerLookDirection = Vector3.ProjectOnPlane(playerLookDirection, Motor.CharacterUp).normalized;
+                // Normalize input for analysis
+                inputDirection = inputDirection.normalized;
                 
-                float lookAngleToWall = Vector3.Angle(playerLookDirection, -wallNormal);
-                float blendFactor = Mathf.InverseLerp(0f, 180f, lookAngleToWall) * 0.5f;
-                jumpDirection = Vector3.Slerp(wallNormal, playerLookDirection, blendFactor).normalized;
-                jumpType = "Directional-Blend";
-                Debug.Log($"[WallRun] {jumpType} jump - using look direction blend");
+                // Calculate input angle relative to wall normal
+                // Project input onto the plane parallel to the wall
+                Vector3 inputOnWallPlane = Vector3.ProjectOnPlane(inputDirection, Motor.CharacterUp);
+                
+                // Calculate dot products for directional analysis
+                float dotNormal = Vector3.Dot(inputOnWallPlane, wallNormal);
+                float dotForward = Vector3.Dot(inputOnWallPlane, wallForward);
+                float dotBackward = Vector3.Dot(inputOnWallPlane, -wallForward);
+                
+                // Calculate the angle between input and wall normal (0° = perpendicular away from wall)
+                float angleFromNormal = Vector3.Angle(inputOnWallPlane, wallNormal);
+                
+                // CASE: Input toward wall (orange arrow in diagram) - redirect to perpendicular
+                if (dotNormal < -0.5f) // Input pointing toward wall
+                {
+                    jumpDirection = wallNormal; // Jump perpendicular away (green arrow)
+                    jumpType = "Toward-Wall Redirected";
+                }
+                // CASE: Input away from wall at an angle
+                else if (angleFromNormal < 45f) // Within 45° cone from wall normal
+                {
+                    // Jump in the exact input direction (red, green, or blue arrows)
+                    jumpDirection = inputOnWallPlane;
+                    jumpType = "Direct Input Jump";
+                }
+                // CASE: Input parallel to wall (forward)
+                else if (dotForward > 0.7f)
+                {
+                    // Areas 1 & 2 in diagram - jump at 45° angle
+                    if (dotNormal > 0.1f) // Slightly away from wall
+                    {
+                        jumpDirection = (wallNormal + wallForward).normalized;
+                        jumpType = "Forward-Away 45°";
+                    }
+                    else // Neutral or slightly toward wall
+                    {
+                        jumpDirection = (wallNormal + wallForward).normalized;
+                        jumpType = "Forward 45°";
+                    }
+                }
+                // CASE: Input parallel to wall (backward)
+                else if (dotBackward > 0.7f)
+                {
+                    // Areas 3 & 4 in diagram
+                    if (dotNormal > 0.1f) // Slightly away from wall
+                    {
+                        jumpDirection = (wallNormal - wallForward).normalized;
+                        jumpType = "Backward-Away 45°";
+                    }
+                    else // Area 4 - redirect to area 1 angle
+                    {
+                        jumpDirection = (wallNormal + wallForward).normalized;
+                        jumpType = "Backward Redirected Forward";
+                    }
+                }
+                // CASE: Diagonal inputs
+                else
+                {
+                    // For any other angle, use the input direction if it's away from wall
+                    if (dotNormal >= 0)
+                    {
+                        jumpDirection = inputOnWallPlane;
+                        jumpType = "Diagonal Direct";
+                    }
+                    else
+                    {
+                        // If diagonal toward wall, reflect it away
+                        jumpDirection = Vector3.Reflect(inputOnWallPlane, wallNormal);
+                        jumpType = "Diagonal Reflected";
+                    }
+                }
+            }
+            
+            // Ensure jump direction is normalized and valid
+            jumpDirection = jumpDirection.normalized;
+            if (jumpDirection.sqrMagnitude < 0.1f)
+            {
+                jumpDirection = wallNormal; // Fallback to perpendicular
             }
             
             // === APPLY JUMP FORCES ===
             
-            // Use ExecuteJump for state management
+            // Use ExecuteJump for vertical component and state management
             Controller.ExecuteJump(wallJumpUpForce, 0f, Vector3.zero);
             Controller.SetWallJumpedThisFrame(true);
             
-            // Apply horizontal forces based on jump type
+            // Apply horizontal force in the calculated direction
             float horizontalForce = wallJumpSideForce;
             
-            // Adjust force magnitude based on jump type
-            if (jumpType == "Forward-Angled")
+            // Adjust force based on jump type
+            if (jumpType.Contains("45°"))
             {
-                horizontalForce *= 0.8f; // Slightly less side force when jumping forward
+                horizontalForce *= 1.1f; // Slightly more force for angled jumps
             }
-            else if (jumpType == "Push-Away")
+            else if (jumpType.Contains("Reflected") || jumpType.Contains("Redirected"))
             {
-                horizontalForce *= 1.2f; // Extra force when actively pushing away
-            }
-            else if (jumpType == "Wall-Hug")
-            {
-                horizontalForce *= 0.6f; // Less force when trying to stay close
+                horizontalForce *= 0.9f; // Slightly less force for redirected jumps
             }
             
             // Add the horizontal jump velocity
@@ -368,10 +395,9 @@ namespace Cardini.Motion
             // Update tracking
             _wallJumpsUsed++;
             
-            Debug.Log($"[WallRun] Wall jump executed! Type: {jumpType}, Direction: {jumpDirection}, Force: {horizontalForce:F1}");
-            Debug.Log($"[WallRun] Wall jumps used: ({_wallJumpsUsed}/{maxWallJumpsPerWall})");
+            // Debug.Log($"[WallRun] Wall jump executed! Type: {jumpType}, Direction: {jumpDirection}, Angle from normal: {angleFromNormal:F1}°");
+            // Debug.Log($"[WallRun] Input analysis - Normal: {dotNormal:F2}, Forward: {dotForward:F2}");
         }
-
 
         private bool IsNewWall(Transform wallTransform)
         {
