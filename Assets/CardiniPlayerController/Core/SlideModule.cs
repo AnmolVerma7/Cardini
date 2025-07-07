@@ -38,6 +38,9 @@ namespace Cardini.Motion
 
         [Tooltip("Minimum speed before slide auto-exits")]
         public float minExitSpeed = 2f;
+        [Header("Slide Cooldown")]
+        [Tooltip("Cooldown time (seconds) after a slide before you can slide again")]
+        public float slideCooldown = 1.0f;
 
         [Header("Bullet Jump Settings")]
         [Tooltip("Speed threshold for bullet jump boost")]
@@ -56,6 +59,7 @@ namespace Cardini.Motion
         private bool _canChainIntoOtherMoves;
         private bool _shouldExitSlide;
         private bool _isCurrentlySliding = false;
+        private float _lastSlideEndTime = -Mathf.Infinity;
 
         public override int Priority => 1; // Higher than grounded/airborne
         public override CharacterMovementState AssociatedPrimaryMovementState => CharacterMovementState.Sliding;
@@ -119,14 +123,21 @@ namespace Cardini.Motion
         #region Private Methods - State Management
 
         private bool CanInitiateSlide()
-        {
-            if (!CommonChecks()) return false;
-            if (!Controller.IsSlideInitiationRequested) return false;
-            if (!HasSufficientSpeed()) return false;
-            if (!IsOnValidSurface()) return false;
-            
-            return true;
-        }
+{
+    if (!CommonChecks()) return false;
+    if (!Controller.IsSlideInitiationRequested) return false;
+    if (!HasSufficientSpeed()) return false;
+    if (!IsOnValidSurface()) return false;
+
+    // --- Fix: If cooldown not ready, consume the request so it doesn't "arm" ---
+    if (Time.time < _lastSlideEndTime + slideCooldown)
+    {
+        Controller.ConsumeSlideInitiation();
+        return false;
+    }
+
+    return true;
+}
 
         private bool HasSufficientSpeed()
         {
@@ -208,6 +219,8 @@ namespace Cardini.Motion
         {
             _isCurrentlySliding = false;
             _shouldExitSlide = false;
+            // --- Record slide end time for cooldown ---
+            _lastSlideEndTime = Time.time;
 
             ResetCapsule();
             ResetControllerState();

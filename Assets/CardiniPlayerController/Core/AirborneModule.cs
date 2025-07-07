@@ -61,29 +61,69 @@ namespace Cardini.Motion
         public override void UpdateVelocity(ref Vector3 currentVelocity, float deltaTime)
         {
             if (Settings == null) return;
-            
+
             bool executedJumpThisFrame = false;
-            
-            // Handle jump abilities with proper priority - coyote jump takes precedence over double jump
-            if (TryExecuteCoyoteJump())
+
+            // NEW: Handle the special case where we have both jumps available while airborne
+            // This happens after exiting wall run without jumping
+            if (Controller.IsJumpRequested() && !Controller.IsJumpConsumed() && !Controller.IsDoubleJumpConsumed() && !Motor.GroundingStatus.FoundAnyGround)
             {
-                executedJumpThisFrame = true;
+                // Use coyote jump if within grace period, otherwise do a regular airborne jump
+                if (Controller.TimeSinceLastAbleToJump <= Settings.JumpPostGroundingGraceTime)
+                {
+                    executedJumpThisFrame = TryExecuteCoyoteJump();
+                }
+                else
+                {
+                    // Do a regular jump while airborne (not double jump)
+                    ExecuteRegularAirborneJump();
+                    executedJumpThisFrame = true;
+                }
             }
+            // Only check for double jump if we didn't already jump
             else if (TryExecuteDoubleJump())
             {
                 executedJumpThisFrame = true;
             }
-            
+
             // Apply air movement
             ApplyAirMovement(ref currentVelocity, deltaTime);
-            
+
             // Apply physics
             ApplyAirPhysics(ref currentVelocity, deltaTime);
-            
+
             // Update airborne state transitions
             UpdateAirborneStateTransitions(executedJumpThisFrame);
         }
 
+    private void ExecuteRegularAirborneJump()
+    {
+        // Get jump speeds based on last grounded speed
+        float jumpUpSpeed, jumpForwardSpeed;
+        float speedTier = Controller.LastGroundedSpeedTier;
+        
+        if (speedTier >= Settings.MaxSprintSpeed * 0.9f)
+        {
+            jumpUpSpeed = Settings.JumpUpSpeed_Sprint;
+            jumpForwardSpeed = Settings.JumpScalableForwardSpeed_Sprint;
+        }
+        else if (speedTier >= Settings.MaxJogSpeed * 0.9f)
+        {
+            jumpUpSpeed = Settings.JumpUpSpeed_Jog;
+            jumpForwardSpeed = Settings.JumpScalableForwardSpeed_Jog;
+        }
+        else
+        {
+            jumpUpSpeed = Settings.JumpUpSpeed_IdleWalk;
+            jumpForwardSpeed = Settings.JumpScalableForwardSpeed_IdleWalk;
+        }
+        
+        Controller.ExecuteJump(jumpUpSpeed, jumpForwardSpeed, Controller.MoveInputVector);
+        Controller.SetJumpConsumed(true); // Only consume regular jump
+        
+        _currentAirborneState = CharacterMovementState.Jumping;
+        Controller.SetMovementState(CharacterMovementState.Jumping);
+    }
         public override void AfterCharacterUpdate(float deltaTime)
         {
             if (Settings == null) return;
@@ -125,36 +165,28 @@ namespace Cardini.Motion
         {
             if (!Settings.AllowDoubleJump) return false;
 
-            // Regular double jump: after a normal jump (ground or coyote), player can double jump
-            bool regularDoubleJump = Controller.IsJumpRequested() && 
-                                   Controller.IsJumpConsumed() && 
-                                   !Controller.IsDoubleJumpConsumed() && 
-                                   !Motor.GroundingStatus.FoundAnyGround;
+            // Only allow double jump if regular jump is consumed but double jump isn't
+            bool canDoubleJump = Controller.IsJumpRequested() && 
+                                Controller.IsJumpConsumed() && 
+                                !Controller.IsDoubleJumpConsumed() && 
+                                !Motor.GroundingStatus.FoundAnyGround;
             
-            // Falling double jump: if player falls off edge without jumping, they can "double jump" from falling state
-            bool fallingDoubleJump = Controller.IsJumpRequested() && 
-                                    _currentAirborneState == CharacterMovementState.Falling &&
-                                    !Controller.IsDoubleJumpConsumed() && 
-                                    !Motor.GroundingStatus.FoundAnyGround;
-            
-            if (regularDoubleJump || fallingDoubleJump)
+            if (canDoubleJump)
             {
-                ExecuteDoubleJump(fallingDoubleJump);
+                ExecuteDoubleJump(false);
                 return true;
             }
             
             return false;
         }
 
-        private void ExecuteDoubleJump(bool wasFalling)
+                private void ExecuteDoubleJump(bool wasFalling)
         {
             var (upSpeed, forwardSpeed) = GetDoubleJumpSpeeds();
             
             Controller.ExecuteJump(upSpeed, forwardSpeed, Controller.MoveInputVector);
             Controller.SetDoubleJumpConsumed(true);
-            
-            if (wasFalling)
-                Controller.SetJumpConsumed(true);
+            // Don't consume regular jump - it should already be consumed
 
             _currentAirborneState = CharacterMovementState.DoubleJumping;
             Controller.SetMovementState(CharacterMovementState.DoubleJumping);

@@ -10837,18 +10837,18 @@ MonoBehaviour:
     BlockIfSprinting: 0
     MinSpeed: 0
     BlockIfCrouching: 0
-  wallRunForce: 1
-  maxWallRunSpeed: 15
-  minWallRunSpeed: 8
+  wallRunSpeed: 13
+  wallRunGravity: 30
   maxWallRunTime: 1.5
-  wallRunCooldown: 0.5
-  gravityCounterForce: 20
-  wallAttachForce: 10
-  wallDirectionSmoothing: 8
+  minEntrySpeed: 7
   wallJumpUpForce: 15
-  wallJumpSideForce: 10
-  wallJumpForwardForce: 5
-  maxWallJumpsPerWall: 1
+  wallJumpForwardForce: 8
+  wallJumpSideForce: 15
+  maxJumpsPerWall: 1
+  wallJumpInputGracePeriod: 0.1
+  wallStickDistance: 0.2
+  wallRunCooldown: 1
+  minHeightAboveGround: 3
   wallDetector: {fileID: 6607685709280838963}
 --- !u!4 &547060890
 Transform:
@@ -22627,6 +22627,7 @@ MonoBehaviour:
   maxSlideSlope: 45
   slideSteerStrength: 5
   minExitSpeed: 5
+  slideCooldown: 1
   bulletJumpSpeedThreshold: 8
   bulletJumpUpBoost: 1.2
   bulletJumpForwardBoost: 2
@@ -38101,6 +38102,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1770085510}
   - component: {fileID: 1770085509}
+  - component: {fileID: 1770085511}
   m_Layer: 0
   m_Name: PlayerUI
   m_TagString: Untagged
@@ -38143,6 +38145,26 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1770085511
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1770085508}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bebe9e863d1066a4ca4621cef3960415, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  wallRunModule: {fileID: 0}
+  wallDetector: {fileID: 6607685709280838963}
+  wallStatusText: {fileID: 0}
+  wallRunInfoText: {fileID: 0}
+  jumpDirectionText: {fileID: 0}
+  showWallStatus: 1
+  showWallRunInfo: 1
+  showJumpDirection: 1
 --- !u!1 &1775741287
 GameObject:
   m_ObjectHideFlags: 0
@@ -48111,7 +48133,7 @@ Transform:
   m_GameObject: {fileID: 6508100139523439702}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: 1.43, z: 0}
+  m_LocalPosition: {x: 0, y: 1.7, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -48271,8 +48293,8 @@ CapsuleCollider:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 2
-  m_Radius: 0.5
-  m_Height: 2.01
+  m_Radius: 0.35
+  m_Height: 2
   m_Direction: 1
   m_Center: {x: 0, y: 1, z: 0}
 --- !u!114 &6607685709280838955
@@ -48333,8 +48355,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   Capsule: {fileID: 6607685709280838954}
-  CapsuleRadius: 0.5
-  CapsuleHeight: 2.01
+  CapsuleRadius: 0.35
+  CapsuleHeight: 2
   CapsuleYOffset: 1
   CapsulePhysicsMaterial: {fileID: 0}
   GroundDetectionExtraDistance: 0.15
@@ -48629,7 +48651,7 @@ MonoBehaviour:
   baseArcHeight: 0.3
   initiationDistance: 3.5
   minVaultDistance: 0.3
-  showGizmos: 1
+  showGizmos: 0
   vaultConeColor: {r: 1, g: 1, b: 1, a: 0.7176471}
   forwardRayColor: {r: 1, g: 0.021099018, b: 0, a: 1}
   upRayColor: {r: 1, g: 1, b: 1, a: 1}
@@ -48654,23 +48676,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c36993386a9cee046bb570e2c589fc9d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  wallDistanceSide: 0.7
-  wallDistanceFront: 1
-  wallDistanceBack: 1
-  doubleRayOffset: 0.1
+  wallDistance: 0.7
+  heightChecks: 2
+  detectionHeight: 1.7
+  lowerDetectionOffset: 0.3
   wallLayers:
     serializedVersion: 2
     m_Bits: 64
-  rayHeight: 1
-  minWallAngle: 80
-  minWallNormalAngleChange: 15
+  minWallSteepness: 10
+  maxWallContinuity: 0.2
+  minWallQuality: 0.5
   showGizmos: 1
-  leftWallColor: {r: 1, g: 0, b: 0, a: 1}
-  rightWallColor: {r: 0, g: 1, b: 0, a: 1}
-  frontWallColor: {r: 0, g: 0, b: 1, a: 1}
-  backWallColor: {r: 0.5, g: 0.5, b: 0.5, a: 1}
-  wallForwardColor: {r: 0, g: 1, b: 1, a: 1}
-  gizmoSphereSize: 0.1
+  showDetailedInfo: 0
 --- !u!222 &7466203708119895235
 CanvasRenderer:
   m_ObjectHideFlags: 0
