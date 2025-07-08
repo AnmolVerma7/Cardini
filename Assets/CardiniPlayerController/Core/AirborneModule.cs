@@ -7,7 +7,7 @@ namespace Cardini.Motion
     /// Handles airborne movement including jumping, double jumping, wall jumping, and falling.
     /// Manages air control, coyote time, and state transitions between different airborne states.
     /// </summary>
-    public class AirborneLocomotionModule : MovementModuleBase
+    public class AirborneModule : MovementModuleBase
     {
         private bool _initiatedByJumpThisFrame = false;
         private CharacterMovementState _currentAirborneState = CharacterMovementState.Falling;

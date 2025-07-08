@@ -3,6 +3,7 @@ using KinematicCharacterController;
 using System.Collections.Generic;
 using System.Linq;
 
+
 namespace Cardini.Motion
 {
     public class CardiniController : MonoBehaviour, ICharacterController
@@ -173,10 +174,45 @@ namespace Cardini.Motion
             ApplyInputResults();
         }
 
+        // private void ProcessMovementInput(ControllerInputs inputs, ref InputContext context)
+        // {
+        //     context.MoveAxes = inputs.MoveAxes;
+
+        //     Vector3 moveInputVectorRaw = Vector3.ClampMagnitude(new Vector3(inputs.MoveAxes.x, 0f, inputs.MoveAxes.y), 1f);
+        //     Vector3 cameraPlanarDirection = Vector3.ProjectOnPlane(inputs.CameraRotation * Vector3.forward, Motor.CharacterUp).normalized;
+
+        //     if (cameraPlanarDirection.sqrMagnitude == 0f)
+        //     {
+        //         cameraPlanarDirection = Vector3.ProjectOnPlane(inputs.CameraRotation * Vector3.up, Motor.CharacterUp).normalized;
+        //     }
+
+        //     Quaternion cameraPlanarRotation = Quaternion.LookRotation(cameraPlanarDirection, Motor.CharacterUp);
+        //     context.MoveInputVector = cameraPlanarRotation * moveInputVectorRaw;
+        //     MoveInputVector = context.MoveInputVector;
+
+        //     if (Settings.OrientationMethod == CardiniOrientationMethod.TowardsCamera)
+        //     {
+        //         context.LookInputVector = cameraPlanarDirection;
+        //     }
+        //     else if (Settings.OrientationMethod == CardiniOrientationMethod.TowardsMovement)
+        //     {
+        //         if (context.MoveInputVector.sqrMagnitude > 0.001f)
+        //             context.LookInputVector = context.MoveInputVector.normalized;
+        //         else if (context.LookInputVector.sqrMagnitude < 0.001f)
+        //             context.LookInputVector = cameraPlanarDirection;
+        //     }
+
+        //     LookInputVector = context.LookInputVector;
+        // }
         private void ProcessMovementInput(ControllerInputs inputs, ref InputContext context)
         {
             context.MoveAxes = inputs.MoveAxes;
             
+            // NEW: Capture raw look input for debug (doesn't affect gameplay)
+            Vector2 rawLookInput = inputBridge.LookInput;
+            context.RawLookInput = new Vector3(rawLookInput.x, 0f, rawLookInput.y);
+            
+            // EXISTING CODE - Keep all your current logic unchanged!
             Vector3 moveInputVectorRaw = Vector3.ClampMagnitude(new Vector3(inputs.MoveAxes.x, 0f, inputs.MoveAxes.y), 1f);
             Vector3 cameraPlanarDirection = Vector3.ProjectOnPlane(inputs.CameraRotation * Vector3.forward, Motor.CharacterUp).normalized;
             
@@ -189,6 +225,7 @@ namespace Cardini.Motion
             context.MoveInputVector = cameraPlanarRotation * moveInputVectorRaw;
             MoveInputVector = context.MoveInputVector;
 
+            // EXISTING LOOK LOGIC - Keep exactly as it was!
             if (Settings.OrientationMethod == CardiniOrientationMethod.TowardsCamera)
             {
                 context.LookInputVector = cameraPlanarDirection;

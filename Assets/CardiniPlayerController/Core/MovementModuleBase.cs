@@ -97,19 +97,29 @@ namespace Cardini.Motion
         public abstract void UpdateVelocity(ref Vector3 currentVelocity, float deltaTime);
         public abstract void AfterCharacterUpdate(float deltaTime);
         public abstract void PostGroundingUpdate(float deltaTime);
-        
+
         // Optional, if some modules need it. Can be empty in base.
-        public virtual void BeforeCharacterUpdate(float deltaTime) { } 
+        public virtual void BeforeCharacterUpdate(float deltaTime) { }
 
         /// <summary>
         /// The specific CharacterMovementState this module primarily represents.
         /// Used by CardiniController to update its overall debug state.
         /// </summary>
         public abstract CharacterMovementState AssociatedPrimaryMovementState { get; }
-        
+
         /// <summary>
         /// Priority of this module. Higher numbers take precedence if multiple modules CanEnterState.
         /// </summary>
         public virtual int Priority { get { return 0; } } 
+        
+        public bool CanPassCommonChecks()
+        {
+            return CommonChecks();
+        }
+
+        public string GetDebugName()
+        {
+            return GetType().Name;
+        }
     }
 }

@@ -14,6 +14,8 @@ namespace Cardini.Motion
         public Vector2 MoveAxes;
         public Vector3 MoveInputVector;
         public Vector3 LookInputVector;
+        [Header("Debug Info")]
+        public Vector3 RawLookInput;
 
         [Header("Action States")]
         public ActionInputState Jump = new ActionInputState();

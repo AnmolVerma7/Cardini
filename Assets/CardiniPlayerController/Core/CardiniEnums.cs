@@ -33,6 +33,7 @@ namespace Cardini.Motion
         Teleporting,
         Vaulting,
         DoubleJumping, 
+        Mantling
     }
     public enum CardiniOrientationMethod
     {

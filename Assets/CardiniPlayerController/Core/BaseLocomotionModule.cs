@@ -8,7 +8,7 @@ namespace Cardini.Motion
     /// Handles ground-based movement including walking, jogging, sprinting, and crouching.
     /// Manages speed tiers, capsule resizing, and jump execution from ground.
     /// </summary>
-    public class GroundedLocomotionModule : MovementModuleBase
+    public class BaseLocomotionModule : MovementModuleBase
     {
         private CharacterMovementState _currentGroundedSubState;
 
