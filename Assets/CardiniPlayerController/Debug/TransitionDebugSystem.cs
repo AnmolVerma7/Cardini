@@ -37,10 +37,10 @@ namespace Cardini.Motion
             }
             
             // Optional: Log to console for immediate debugging
-            if (UnityEngine.Debug.unityLogger.logEnabled)
-            {
-                Debug.Log($"🔄 {type} Transition: {fromState} → {toState} | {record.triggerReason}");
-            }
+            // if (UnityEngine.Debug.unityLogger.logEnabled)
+            // {
+            //     Debug.Log($"🔄 {type} Transition: {fromState} → {toState} | {record.triggerReason}");
+            // }
         }
         
         public static List<DetailedTransitionRecord> GetRecentTransitions()

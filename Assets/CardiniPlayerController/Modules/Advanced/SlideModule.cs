@@ -123,21 +123,21 @@ namespace Cardini.Motion
         #region Private Methods - State Management
 
         private bool CanInitiateSlide()
-{
-    if (!CommonChecks()) return false;
-    if (!Controller.IsSlideInitiationRequested) return false;
-    if (!HasSufficientSpeed()) return false;
-    if (!IsOnValidSurface()) return false;
+        {
+            if (!CommonChecks()) return false;
+            if (!Controller.IsSlideInitiationRequested) return false;
+            if (!HasSufficientSpeed()) return false;
+            if (!IsOnValidSurface()) return false;
 
-    // --- Fix: If cooldown not ready, consume the request so it doesn't "arm" ---
-    if (Time.time < _lastSlideEndTime + slideCooldown)
-    {
-        Controller.ConsumeSlideInitiation();
-        return false;
-    }
+            // Consume request if on cooldown to prevent "arming"
+            if (Time.time < _lastSlideEndTime + slideCooldown)
+            {
+                Controller.ConsumeSlideInitiation();
+                return false;
+            }
 
-    return true;
-}
+            return true;
+        }
 
         private bool HasSufficientSpeed()
         {
@@ -219,7 +219,6 @@ namespace Cardini.Motion
         {
             _isCurrentlySliding = false;
             _shouldExitSlide = false;
-            // --- Record slide end time for cooldown ---
             _lastSlideEndTime = Time.time;
 
             ResetCapsule();
@@ -303,6 +302,10 @@ namespace Cardini.Motion
                 actualJumpForwardSpeed *= bulletJumpForwardBoost;
             }
 
+            // Mark as bullet jump before execution (consistent with wall jump)
+            Controller.SetBulletJumpedThisFrame(true);
+            Controller.SetJumpedThisFrame(true);
+            
             Controller.ExecuteJump(actualJumpUpSpeed, actualJumpForwardSpeed, _slideDirection);
             _shouldExitSlide = true;
         }

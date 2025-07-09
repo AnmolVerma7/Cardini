@@ -34,11 +34,17 @@ namespace Cardini.Motion
                    (isExitingSlide || true);
         }
 
+
         public override void OnEnterState()
         {
             Controller.TimeSinceLastAbleToJump = 0f;
             
-            if (!Controller._jumpedThisFrameInternal)
+            // Don't reset jump flags if we just jumped (including bullet jumps)
+            bool justJumped = Controller._jumpedThisFrameInternal || 
+                            Controller.WasBulletJumpExecuted() || 
+                            Controller.WasWallJumpExecuted();
+            
+            if (!justJumped)
             {
                 Controller.ConsumeJumpRequest();
                 Controller.SetJumpConsumed(false);

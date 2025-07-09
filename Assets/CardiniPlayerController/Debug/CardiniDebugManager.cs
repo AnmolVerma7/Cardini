@@ -271,13 +271,16 @@ namespace Cardini.Motion
             if (wallRunModule == null) return "<color=#FF6B6B>WallRunModule not found</color>";
             
             var wallDetector = controller.GetComponentInChildren<WallDetector>();
+            int wallJumpsRemaining = wallRunModule.GetWallJumpsRemaining();
+            string wallJumpStatus = GetBoolIcon(wallJumpsRemaining > 0);
             if (wallDetector != null)
             {
                 var wallInfo = wallDetector.CurrentWall;
                 return $"<color=#E91E63>Wall Detected:</color> {GetBoolIcon(wallInfo.hasWall)}\n" +
                        $"<color=#9C27B0>Can Wall Run:</color> {GetBoolIcon(wallInfo.canWallRun)}\n" +
                        $"<color=#673AB7>Wall Quality:</color> {wallInfo.wallQuality:F2}\n" +
-                       $"<color=#3F51B5>Is Running:</color> {GetBoolIcon(wallRunModule.IsWallRunning)}";
+                       $"<color=#3F51B5>Is Running:</color> {GetBoolIcon(wallRunModule.IsWallRunning)}\n" +
+                       $"<color=#00BCD4>Wall Jump:</color> {wallJumpStatus} ({wallJumpsRemaining})";
             }
             
             return $"<color=#3F51B5>Is Running:</color> {GetBoolIcon(wallRunModule.IsWallRunning)}\n" +

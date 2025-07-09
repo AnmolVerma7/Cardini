@@ -32,8 +32,24 @@ namespace Cardini.Motion
         WallJumping,
         Teleporting,
         Vaulting,
-        DoubleJumping, 
-        Mantling
+        DoubleJumping,
+        Mantling,
+        BulletJumping  
+        // None,        // Default or uninitialized
+        // Falling,
+        // Mantling,
+        // Idle,
+        // Walking,    // 1st tier of movement speed
+        // Jogging,     // 2nd tier of movement speed
+        // Sprinting,   // 3rd tier of movement speed
+        // Crouching,
+        // Sliding,
+        // Jumping,     // Regular Jump
+        // DoubleJumping,
+        // BulletJumping 
+        // WallJumping,
+        // WallRunning,
+        // Vaulting,
     }
     public enum CardiniOrientationMethod
     {

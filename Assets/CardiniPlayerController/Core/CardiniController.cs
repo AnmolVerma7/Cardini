@@ -76,20 +76,21 @@ namespace Cardini.Motion
         public bool _jumpConsumedInternal;
         public bool _jumpedThisFrameInternal;
         private bool _jumpExecutionIntentInternal = false;
-        
+
         // Double jump
         public bool _doubleJumpConsumedInternal = false;
-        
+
+        // Special jump types
+        private bool _wallJumpedThisFrame = false;
+        private bool _bulletJumpedThisFrame = false;
+
         // Jump timing
         public float TimeSinceJumpRequested { get; private set; } = Mathf.Infinity;
         public float TimeSinceLastAbleToJump { get; set; } = 0f;
-        
-        // Wall jump detection (currently unused by WallRunModule)
+
+        // Wall jump detection (for future use)
         private bool _canWallJump = false;
         private Vector3 _wallJumpNormal;
-        
-        // Wall jump state tracking (attempted fix that didn't work)
-        private bool _wallJumpedThisFrame = false;
         #endregion
 
         #region KCC Internal
@@ -357,9 +358,7 @@ namespace Cardini.Motion
             }
         }
         #endregion
-
-        #region Public API for Modules
-        // Jump System
+        #region Public API for Modules - Jump System
         public void ExecuteJump(float jumpUpSpeed, float jumpForwardSpeed, Vector3 moveInputForJump)
         {
             Vector3 jumpDirection = Motor.CharacterUp;
@@ -383,10 +382,12 @@ namespace Cardini.Motion
         {
             bool intent = _jumpExecutionIntentInternal;
             _jumpExecutionIntentInternal = false;
-            _wallJumpedThisFrame = false; // Also reset wall jump flag
+            _wallJumpedThisFrame = false;
+            _bulletJumpedThisFrame = false;
             return intent;
         }
 
+        // Basic jump state
         public bool IsJumpRequested() => _jumpRequestedInternal;
         public bool IsJumpConsumed() => _jumpConsumedInternal;
         public void ConsumeJumpRequest() 
@@ -396,14 +397,23 @@ namespace Cardini.Motion
         }
         public void SetJumpConsumed(bool consumed) => _jumpConsumedInternal = consumed;
         public void SetJumpedThisFrame(bool jumped) => _jumpedThisFrameInternal = jumped;
+
+        // Double jump
         public bool IsDoubleJumpConsumed() => _doubleJumpConsumedInternal;
         public void SetDoubleJumpConsumed(bool consumed) => _doubleJumpConsumedInternal = consumed;
 
-        // Wall Jump (currently unused by modules)
+        // Special jump types
         public bool CanWallJump() => _canWallJump;
         public Vector3 GetWallJumpNormal() => _wallJumpNormal;
         public void SetWallJumpedThisFrame(bool wallJumped) => _wallJumpedThisFrame = wallJumped;
         public bool WasWallJumpExecuted() => _wallJumpedThisFrame;
+
+        public void SetBulletJumpedThisFrame(bool bulletJumped) => _bulletJumpedThisFrame = bulletJumped;
+        public bool WasBulletJumpExecuted() => _bulletJumpedThisFrame;
+        #endregion
+
+        #region Public API for Modules
+
 
         // State Management
         public void SetCrouchingState(bool isPhysicallyCrouching) => IsCrouching = isPhysicallyCrouching;
@@ -619,11 +629,6 @@ namespace Cardini.Motion
         #endregion
 
         #region Unused/Deprecated
-        // This method is never called
-        // protected void OnLeaveStableGround() 
-        // { 
-        //     LastGroundedSpeedTier = CurrentSpeedTierForJump; 
-        // }
         #endregion
     }
 }

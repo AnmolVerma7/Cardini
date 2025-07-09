@@ -12,6 +12,8 @@ namespace Cardini.Motion
         private bool _initiatedByJumpThisFrame = false;
         private CharacterMovementState _currentAirborneState = CharacterMovementState.Falling;
         private bool _enteredDueToWallJump = false;
+        private bool _enteredDueToBulletJump = false;
+        private bool _jumpInputThisFrame = false;
 
         public override int Priority => 3;
         public override CharacterMovementState AssociatedPrimaryMovementState => _currentAirborneState;
@@ -27,6 +29,7 @@ namespace Cardini.Motion
         {
             // Capture jump states before consuming anything
             _enteredDueToWallJump = Controller.WasWallJumpExecuted();
+            _enteredDueToBulletJump = Controller.WasBulletJumpExecuted();
             _initiatedByJumpThisFrame = Controller.ConsumeJumpExecutionIntent();
 
             if (_initiatedByJumpThisFrame)
@@ -42,13 +45,26 @@ namespace Cardini.Motion
                 Controller.SetMovementState(CharacterMovementState.Falling);
                 Controller.SetLastGroundedSpeedTier(Controller.CurrentSpeedTierForJump);
             }
-            
+
             Controller.TimeSinceLastAbleToJump = 0.001f;
             PlayerAnimator?.SetGrounded(false);
         }
 
         public override void OnExitState()
         {
+            // If exiting WITHOUT using a special jump, restore jump availability
+            if (!_enteredDueToBulletJump && !_enteredDueToWallJump)
+            {
+                Controller.SetJumpConsumed(false);
+                Controller.SetDoubleJumpConsumed(false);
+                Controller.TimeSinceLastAbleToJump = 0.001f;
+                
+                if (Controller.CurrentMovementState == CharacterMovementState.WallRunning)
+                {
+                    Controller.SetMovementState(CharacterMovementState.Falling);
+                }
+            }
+
             ResetAirborneState();
             PlayerAnimator?.SetGrounded(true);
         }
@@ -64,24 +80,30 @@ namespace Cardini.Motion
 
             bool executedJumpThisFrame = false;
 
-            // NEW: Handle the special case where we have both jumps available while airborne
-            // This happens after exiting wall run without jumping
+            // Remove or modify the special case handling - bullet jumps should only allow double jump
             if (Controller.IsJumpRequested() && !Controller.IsJumpConsumed() && !Controller.IsDoubleJumpConsumed() && !Motor.GroundingStatus.FoundAnyGround)
             {
-                // Use coyote jump if within grace period, otherwise do a regular airborne jump
-                if (Controller.TimeSinceLastAbleToJump <= Settings.JumpPostGroundingGraceTime)
+                // Only allow this for wall run exits, not bullet jumps
+                bool wasFromWallRun = _currentAirborneState == CharacterMovementState.Falling &&
+                                    Controller.TimeSinceLastAbleToJump < 0.5f &&
+                                    !_enteredDueToBulletJump; // Add this check
+
+                if (wasFromWallRun)
                 {
-                    executedJumpThisFrame = TryExecuteCoyoteJump();
-                }
-                else
-                {
-                    // Do a regular jump while airborne (not double jump)
-                    ExecuteRegularAirborneJump();
-                    executedJumpThisFrame = true;
+                    if (Controller.TimeSinceLastAbleToJump <= Settings.JumpPostGroundingGraceTime)
+                    {
+                        executedJumpThisFrame = TryExecuteCoyoteJump();
+                    }
+                    else
+                    {
+                        ExecuteRegularAirborneJump();
+                        executedJumpThisFrame = true;
+                    }
                 }
             }
+
             // Only check for double jump if we didn't already jump
-            else if (TryExecuteDoubleJump())
+            if (!executedJumpThisFrame && TryExecuteDoubleJump())
             {
                 executedJumpThisFrame = true;
             }
@@ -96,34 +118,40 @@ namespace Cardini.Motion
             UpdateAirborneStateTransitions(executedJumpThisFrame);
         }
 
-    private void ExecuteRegularAirborneJump()
-    {
-        // Get jump speeds based on last grounded speed
-        float jumpUpSpeed, jumpForwardSpeed;
-        float speedTier = Controller.LastGroundedSpeedTier;
-        
-        if (speedTier >= Settings.MaxSprintSpeed * 0.9f)
+        private void ExecuteRegularAirborneJump()
         {
-            jumpUpSpeed = Settings.JumpUpSpeed_Sprint;
-            jumpForwardSpeed = Settings.JumpScalableForwardSpeed_Sprint;
+            // Get jump speeds based on last grounded speed
+            float jumpUpSpeed, jumpForwardSpeed;
+            float speedTier = Controller.LastGroundedSpeedTier;
+
+            if (speedTier >= Settings.MaxSprintSpeed * 0.9f)
+            {
+                jumpUpSpeed = Settings.JumpUpSpeed_Sprint;
+                jumpForwardSpeed = Settings.JumpScalableForwardSpeed_Sprint;
+            }
+            else if (speedTier >= Settings.MaxJogSpeed * 0.9f)
+            {
+                jumpUpSpeed = Settings.JumpUpSpeed_Jog;
+                jumpForwardSpeed = Settings.JumpScalableForwardSpeed_Jog;
+            }
+            else
+            {
+                jumpUpSpeed = Settings.JumpUpSpeed_IdleWalk;
+                jumpForwardSpeed = Settings.JumpScalableForwardSpeed_IdleWalk;
+            }
+
+            Controller.ExecuteJump(jumpUpSpeed, jumpForwardSpeed, Controller.MoveInputVector);
+            Controller.SetJumpConsumed(true); // Only consume regular jump
+
+            _currentAirborneState = CharacterMovementState.Jumping;
+            Controller.SetMovementState(CharacterMovementState.Jumping);
         }
-        else if (speedTier >= Settings.MaxJogSpeed * 0.9f)
-        {
-            jumpUpSpeed = Settings.JumpUpSpeed_Jog;
-            jumpForwardSpeed = Settings.JumpScalableForwardSpeed_Jog;
+
+        public override void BeforeCharacterUpdate(float deltaTime) 
+        { 
+            // Track jump input directly from InputBridge
+            _jumpInputThisFrame = Controller.inputBridge.Jump.IsPressed;
         }
-        else
-        {
-            jumpUpSpeed = Settings.JumpUpSpeed_IdleWalk;
-            jumpForwardSpeed = Settings.JumpScalableForwardSpeed_IdleWalk;
-        }
-        
-        Controller.ExecuteJump(jumpUpSpeed, jumpForwardSpeed, Controller.MoveInputVector);
-        Controller.SetJumpConsumed(true); // Only consume regular jump
-        
-        _currentAirborneState = CharacterMovementState.Jumping;
-        Controller.SetMovementState(CharacterMovementState.Jumping);
-    }
         public override void AfterCharacterUpdate(float deltaTime)
         {
             if (Settings == null) return;
@@ -134,7 +162,7 @@ namespace Cardini.Motion
         {
             if (Motor.GroundingStatus.IsStableOnGround)
             {
-                Controller.OnLandedInternal(); 
+                Controller.OnLandedInternal();
             }
         }
 
@@ -142,7 +170,12 @@ namespace Cardini.Motion
 
         private void DetermineJumpType()
         {
-            if (_enteredDueToWallJump)
+            if (_enteredDueToBulletJump)
+            {
+                _currentAirborneState = CharacterMovementState.BulletJumping;
+                Controller.SetMovementState(CharacterMovementState.BulletJumping);
+            }
+            else if (_enteredDueToWallJump)
             {
                 _currentAirborneState = CharacterMovementState.WallJumping;
                 Controller.SetMovementState(CharacterMovementState.WallJumping);
@@ -158,6 +191,7 @@ namespace Cardini.Motion
         {
             _initiatedByJumpThisFrame = false;
             _enteredDueToWallJump = false;
+            _enteredDueToBulletJump = false;
             _currentAirborneState = CharacterMovementState.Falling;
         }
 
@@ -165,25 +199,29 @@ namespace Cardini.Motion
         {
             if (!Settings.AllowDoubleJump) return false;
 
-            // Only allow double jump if regular jump is consumed but double jump isn't
-            bool canDoubleJump = Controller.IsJumpRequested() && 
-                                Controller.IsJumpConsumed() && 
-                                !Controller.IsDoubleJumpConsumed() && 
+            // Use the direct input check
+            bool jumpPressed = _jumpInputThisFrame || Controller.IsJumpRequested();
+
+            // Allow double jump with direct input check
+            bool canDoubleJump = jumpPressed &&  // Use jumpPressed instead of Controller.IsJumpRequested()
+                                Controller.IsJumpConsumed() &&
+                                !Controller.IsDoubleJumpConsumed() &&
                                 !Motor.GroundingStatus.FoundAnyGround;
-            
+
             if (canDoubleJump)
             {
                 ExecuteDoubleJump(false);
+                Controller.ConsumeJumpRequest();
                 return true;
             }
-            
+
             return false;
         }
 
-                private void ExecuteDoubleJump(bool wasFalling)
+        private void ExecuteDoubleJump(bool wasFalling)
         {
             var (upSpeed, forwardSpeed) = GetDoubleJumpSpeeds();
-            
+
             Controller.ExecuteJump(upSpeed, forwardSpeed, Controller.MoveInputVector);
             Controller.SetDoubleJumpConsumed(true);
             // Don't consume regular jump - it should already be consumed
@@ -195,13 +233,13 @@ namespace Cardini.Motion
         private (float upSpeed, float forwardSpeed) GetDoubleJumpSpeeds()
         {
             float speedTier = Controller.LastGroundedSpeedTier;
-            
+
             if (speedTier >= Settings.MaxSprintSpeed * 0.9f)
                 return (Settings.DoubleJumpUpSpeed_Sprint, Settings.DoubleJumpScalableForwardSpeed_Sprint);
-            
+
             if (speedTier >= Settings.MaxJogSpeed * 0.9f)
                 return (Settings.DoubleJumpUpSpeed_Jog, Settings.DoubleJumpScalableForwardSpeed_Jog);
-            
+
             return (Settings.DoubleJumpUpSpeed_IdleWalk, Settings.DoubleJumpScalableForwardSpeed_IdleWalk);
         }
 
@@ -209,7 +247,7 @@ namespace Cardini.Motion
         {
             // Coyote jump has priority over double jump when both conditions might be met
             bool canCoyoteJump = Controller.IsJumpRequested() &&
-                                !Controller.IsJumpConsumed() && 
+                                !Controller.IsJumpConsumed() &&
                                 Controller.TimeSinceLastAbleToJump > 0f &&
                                 Controller.TimeSinceLastAbleToJump <= Settings.JumpPostGroundingGraceTime &&
                                 !Motor.GroundingStatus.FoundAnyGround;
@@ -219,16 +257,16 @@ namespace Cardini.Motion
                 ExecuteCoyoteJump();
                 return true;
             }
-            
+
             return false;
         }
 
         private void ExecuteCoyoteJump()
         {
             var (upSpeed, forwardSpeed) = GetCoyoteJumpSpeeds();
-            
+
             Controller.ExecuteJump(upSpeed, forwardSpeed, Controller.MoveInputVector);
-            
+
             _currentAirborneState = CharacterMovementState.Jumping;
             Controller.SetMovementState(CharacterMovementState.Jumping);
         }
@@ -236,13 +274,13 @@ namespace Cardini.Motion
         private (float upSpeed, float forwardSpeed) GetCoyoteJumpSpeeds()
         {
             float speedTier = Controller.LastGroundedSpeedTier;
-            
+
             if (speedTier >= Settings.MaxSprintSpeed * 0.9f)
                 return (Settings.JumpUpSpeed_Sprint, Settings.JumpScalableForwardSpeed_Sprint);
-            
+
             if (speedTier >= Settings.MaxJogSpeed * 0.9f)
                 return (Settings.JumpUpSpeed_Jog, Settings.JumpScalableForwardSpeed_Jog);
-            
+
             return (Settings.JumpUpSpeed_IdleWalk, Settings.JumpScalableForwardSpeed_IdleWalk);
         }
 
@@ -276,7 +314,7 @@ namespace Cardini.Motion
             float groundedSpeedTier = Controller.LastGroundedSpeedTier;
             float targetSpeed = Mathf.Min(groundedSpeedTier, Settings.MaxAirMoveSpeed);
             float minimumAirSpeed = Settings.MaxWalkSpeed * 0.5f;
-            
+
             return Mathf.Max(targetSpeed, minimumAirSpeed);
         }
 
@@ -284,7 +322,7 @@ namespace Cardini.Motion
         {
             // Enforce speed cap
             EnforceHorizontalSpeedCap(ref currentVelocity, deltaTime);
-            
+
             // Apply gravity and drag
             currentVelocity += Settings.Gravity * deltaTime;
             currentVelocity *= (1f / (1f + (Settings.Drag * deltaTime)));
@@ -293,28 +331,43 @@ namespace Cardini.Motion
         private void EnforceHorizontalSpeedCap(ref Vector3 currentVelocity, float deltaTime)
         {
             Vector3 horizontalVelocity = Vector3.ProjectOnPlane(currentVelocity, Motor.CharacterUp);
-            
+
             if (horizontalVelocity.magnitude > Settings.MaxAirMoveSpeed)
             {
                 float decelerationRate = Settings.AirAccelerationSpeed * 2f;
                 float currentHorizontalSpeed = horizontalVelocity.magnitude;
                 float newHorizontalSpeed = Mathf.MoveTowards(currentHorizontalSpeed, Settings.MaxAirMoveSpeed, decelerationRate * deltaTime);
-                
+
                 Vector3 verticalVelocity = Vector3.Project(currentVelocity, Motor.CharacterUp);
                 currentVelocity = horizontalVelocity.normalized * newHorizontalSpeed + verticalVelocity;
             }
         }
 
+
         private void UpdateAirborneStateTransitions(bool executedJumpThisFrame)
         {
-            // Don't transition to falling if we just executed a jump or if we're in WallJumping and still moving upward
+            // Handle transition TO double jumping first
+            if (executedJumpThisFrame && _currentAirborneState != CharacterMovementState.DoubleJumping)
+            {
+                // If we just executed a double jump, make sure we're in the right state
+                if (Controller.IsDoubleJumpConsumed() && Controller.IsJumpConsumed())
+                {
+                    _currentAirborneState = CharacterMovementState.DoubleJumping;
+                    Controller.SetMovementState(CharacterMovementState.DoubleJumping);
+                    return;
+                }
+            }
+            
+            // Don't transition to falling if we just executed a jump or if we're in a jumping state and still moving upward
             bool shouldStayInJumpingState = executedJumpThisFrame || 
-                                          (_currentAirborneState == CharacterMovementState.WallJumping && 
-                                           Motor.Velocity.y > -0.5f);
-                                           
+                                        ((_currentAirborneState == CharacterMovementState.WallJumping || 
+                                            _currentAirborneState == CharacterMovementState.BulletJumping) && 
+                                        Motor.Velocity.y > -0.5f);
+                                        
             bool isInJumpingState = _currentAirborneState == CharacterMovementState.Jumping || 
-                                   _currentAirborneState == CharacterMovementState.DoubleJumping || 
-                                   _currentAirborneState == CharacterMovementState.WallJumping;
+                                _currentAirborneState == CharacterMovementState.DoubleJumping || 
+                                _currentAirborneState == CharacterMovementState.WallJumping ||
+                                _currentAirborneState == CharacterMovementState.BulletJumping;
 
             if (!shouldStayInJumpingState && isInJumpingState && Motor.Velocity.y < -0.5f)
             {
@@ -326,3 +379,4 @@ namespace Cardini.Motion
         #endregion
     }
 }
+

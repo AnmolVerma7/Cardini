@@ -154,13 +154,17 @@ namespace Cardini.UI
         
         void UpdateJumpSection()
         {
+            var wallRunModule = playerController.GetComponentInChildren<WallRunModule>();
+            bool wallJumpAvailable = wallRunModule.GetWallJumpsRemaining() > 0;
             string content = $"<b>JUMP SYSTEM</b>\n\n" +
                            $"<color=#FF6B6B>Jump Consumed:</color> {GetBoolStatus(playerController.IsJumpConsumed())}\n" +
                            $"<color=#FF8C00>Double Jump Consumed:</color> {GetBoolStatus(playerController.IsDoubleJumpConsumed())}\n" +
                            $"<color=#32CD32>Jump Requested:</color> {GetBoolStatus(playerController.IsJumpRequested())}\n" +
                            $"<color=#4169E1>Time Since Able to Jump:</color> {playerController.TimeSinceLastAbleToJump:F2}s\n" +
-                           $"<color=#9370DB>Wall Jump Available:</color> {GetBoolStatus(playerController.CanWallJump())}";
+                           $"<color=#9370DB>Wall Jump Available:</color> {GetBoolStatus(wallJumpAvailable)}";
             
+
+
             // Add coyote time info (even if not working yet)
             float coyoteTimeRemaining = Mathf.Max(0, playerController.Settings.JumpPostGroundingGraceTime - playerController.TimeSinceLastAbleToJump);
             content += $"\n<color=#FFD700>Coyote Time:</color> {coyoteTimeRemaining:F2}s";
@@ -220,10 +224,10 @@ namespace Cardini.UI
                     case "MantleModule":
                         content += GetMantleModuleInfo();
                         break;
-                    case "AirborneLocomotionModule":
+                    case "AirborneModule":
                         content += GetAirborneModuleInfo();
                         break;
-                    case "GroundedLocomotionModule":
+                    case "BaseLocomotionModule":
                         content += GetGroundedModuleInfo();
                         break;
                     default:
